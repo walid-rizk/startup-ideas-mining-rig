@@ -1,0 +1,93 @@
+import "server-only";
+import { streamText, type CoreMessage } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { google } from "@ai-sdk/google";
+import { loadSkill } from "./skills";
+import type { ModelChoice, SkillName } from "./types";
+
+export class ProviderConfigError extends Error {}
+
+function resolveModel(choice: ModelChoice) {
+  if (choice.provider === "anthropic") {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new ProviderConfigError(
+        "ANTHROPIC_API_KEY is not set. Add it to .env.local or choose a Gemini model.",
+      );
+    }
+    return anthropic(choice.model);
+  }
+  if (choice.provider === "gemini") {
+    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+      throw new ProviderConfigError(
+        "GOOGLE_GENERATIVE_AI_API_KEY is not set. Add it to .env.local or choose an Anthropic model.",
+      );
+    }
+    const modelOpts: Record<string, unknown> = {};
+    return google(choice.model, modelOpts);
+  }
+  throw new ProviderConfigError(`Unknown provider: ${(choice as ModelChoice).provider}`);
+}
+
+export interface StreamSkillOptions {
+  skill: SkillName;
+  model: ModelChoice;
+  userMessage?: string;
+  messages?: CoreMessage[];
+  temperature?: number;
+  maxTokens?: number;
+  /**
+   * Optional override appended to the skill's system prompt. Use for tasks that
+   * need a variant persona (e.g. develop-one-seed-idea instead of generate-three)
+   * where the skill's default contract actively fights the intended behavior.
+   */
+  systemAppend?: string;
+}
+
+/**
+ * Central wrapper: load SKILL.md, resolve model, stream.
+ * Returns a Response suitable for direct return from a route handler.
+ */
+export async function streamSkill(opts: StreamSkillOptions): Promise<Response> {
+  try {
+    const skill = await loadSkill(opts.skill);
+    const model = resolveModel(opts.model);
+
+    const messages: CoreMessage[] =
+      opts.messages ??
+      (opts.userMessage ? [{ role: "user", content: opts.userMessage }] : []);
+
+    if (messages.length === 0) {
+      return errorResponse(400, "No user message or message history provided.");
+    }
+
+    const systemPrompt = opts.systemAppend
+      ? `${skill.systemPrompt}\n\n---\n\n## Task Override\n\n${opts.systemAppend}`
+      : skill.systemPrompt;
+
+    const result = await streamText({
+      // Provider package versions are not all in lockstep; their exported LanguageModel
+      // types drift. Runtime is compatible; suppress the type-only mismatch.
+      model: model as Parameters<typeof streamText>[0]["model"],
+      system: systemPrompt,
+      messages,
+      temperature: opts.temperature ?? 0.8,
+      maxTokens: opts.maxTokens,
+    });
+
+    return result.toAIStreamResponse();
+  } catch (err) {
+    if (err instanceof ProviderConfigError) {
+      return errorResponse(400, err.message);
+    }
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[streamSkill] error:", err);
+    return errorResponse(500, message);
+  }
+}
+
+function errorResponse(status: number, message: string): Response {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
