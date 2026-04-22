@@ -20,21 +20,23 @@ import {
   LayoutDashboard,
   Download,
   FileDown,
-  Code2,
-  ArrowRight,
 } from 'lucide-react';
-import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ModelChoice } from '@/lib/types';
 import { streamToText } from '@/lib/streaming';
+import { extractTldr } from '@/lib/markdown-render';
+import { marked } from 'marked';
+import { usePhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, clearPhaseRun, getPhaseRun } from '@/lib/phase-status';
 
 interface ShapeSessionProps {
   userContext: string;
+  ideaId: string;
   idea: {
     title: string;
     content: string;
     critique?: string;
   };
+  vcMemo?: string;
   marketResearch?: string;
   modelChoice: ModelChoice;
   initialPrd?: string;
@@ -42,13 +44,14 @@ interface ShapeSessionProps {
   onBack?: () => void;
 }
 
-export default function ShapeSession({ userContext, idea, marketResearch, modelChoice, initialPrd, onComplete, onBack }: ShapeSessionProps) {
-  const [isShaping, setIsShaping] = useState(false);
-  const [prdOutput, setPrdOutput] = useState(initialPrd ?? '');
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+export default function ShapeSession({ userContext, ideaId, idea, vcMemo, marketResearch, modelChoice, initialPrd, onComplete, onBack }: ShapeSessionProps) {
+  const phaseRun = usePhaseRun('shape');
+  const isActiveRun = phaseRun != null && phaseRun.ideaId === ideaId;
+  const isShaping = !!(isActiveRun && phaseRun!.isRunning);
+  const prdOutput = isActiveRun ? phaseRun!.output : (initialPrd ?? '');
+  const error = isActiveRun ? (phaseRun!.error ?? null) : null;
+  const [progress, setProgress] = useState(() => isShaping ? 30 : (initialPrd ? 100 : 0));
   const outputRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (outputRef.current) {
@@ -57,13 +60,24 @@ export default function ShapeSession({ userContext, idea, marketResearch, modelC
   }, [prdOutput]);
 
   useEffect(() => {
-    if (isShaping && progress < 90) {
-      const timer = setInterval(() => {
-        setProgress(p => Math.min(p + Math.random() * 4, 90));
-      }, 500);
-      return () => clearInterval(timer);
+    if (isShaping) {
+      if (progress < 90) {
+        const timer = setInterval(() => {
+          setProgress(p => Math.min(p + Math.random() * 4, 90));
+        }, 500);
+        return () => clearInterval(timer);
+      }
+    } else if (isActiveRun && !error) {
+      setProgress(100);
     }
-  }, [isShaping, progress]);
+  }, [isShaping, progress, isActiveRun, error]);
+
+  useEffect(() => {
+    return () => {
+      const run = getPhaseRun('shape');
+      if (run && !run.isRunning) clearPhaseRun('shape');
+    };
+  }, []);
 
   // Strip markdown formatting
   const stripMarkdown = (text: string): string => {
@@ -179,136 +193,11 @@ export default function ShapeSession({ userContext, idea, marketResearch, modelC
     });
   };
 
-  // Convert markdown to HTML for export
-  const markdownToHtml = (markdown: string): string => {
-    return markdown
-      // Headers
-      .replace(/^## (.+)$/gm, '<h2 style="color: #1a1a1a; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; margin-top: 24px;">$1</h2>')
-      .replace(/^### (.+)$/gm, '<h3 style="color: #374151; margin-top: 16px;">$1</h3>')
-      // Bold
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      // Italic
-      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-      // Tables
-      .replace(/\|(.+)\|/g, (match) => {
-        const cells = match.split('|').filter(c => c.trim());
-        if (cells.some(c => /^[-:]+$/.test(c.trim()))) return '';
-        const cellTags = cells.map(c => `<td style="border: 1px solid #e5e7eb; padding: 8px;">${c.trim()}</td>`).join('');
-        return `<tr>${cellTags}</tr>`;
-      })
-      // Checkboxes
-      .replace(/- \[ \] (.+)/g, '<p style="margin: 4px 0;">☐ $1</p>')
-      .replace(/- \[x\] (.+)/gi, '<p style="margin: 4px 0;">☑ $1</p>')
-      // List items
-      .replace(/^- (.+)$/gm, '<li style="margin: 4px 0;">$1</li>')
-      .replace(/^(\d+)\. (.+)$/gm, '<li style="margin: 4px 0;">$2</li>')
-      // Paragraphs
-      .replace(/\n\n/g, '</p><p style="margin: 12px 0;">')
-      // Line breaks
-      .replace(/\n/g, '<br/>');
-  };
-
-  // Export to Word document
-  const exportToWord = () => {
-    const htmlContent = `
-      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
-      <head>
-        <meta charset="utf-8">
-        <title>PRD - ${idea.title}</title>
-        <style>
-          body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 800px; margin: 0 auto; padding: 40px; }
-          h1 { color: #1e40af; border-bottom: 3px solid #3b82f6; padding-bottom: 12px; }
-          h2 { color: #1e3a5f; border-bottom: 2px solid #93c5fd; padding-bottom: 8px; margin-top: 32px; }
-          h3 { color: #374151; margin-top: 20px; }
-          table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-          th, td { border: 1px solid #e5e7eb; padding: 10px; text-align: left; }
-          th { background-color: #f3f4f6; font-weight: 600; }
-          ul, ol { margin: 12px 0; padding-left: 24px; }
-          li { margin: 6px 0; }
-          strong { color: #1e3a5f; }
-        </style>
-      </head>
-      <body>
-        <h1>Product Requirements Document</h1>
-        <h2 style="border: none; color: #6b7280; font-size: 18px;">${idea.title}</h2>
-        <p style="color: #9ca3af; font-size: 12px;">Generated by Startup Idea Mining Rig • ${new Date().toLocaleDateString()}</p>
-        <hr style="border: 1px solid #e5e7eb; margin: 24px 0;" />
-        ${markdownToHtml(prdOutput)}
-      </body>
-      </html>
-    `;
-
-    const blob = new Blob([htmlContent], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `PRD-${idea.title.replace(/[^a-zA-Z0-9]/g, '-')}.doc`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  // Export to PDF (using print dialog)
-  const exportToPdf = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Please allow popups to export PDF');
-      return;
-    }
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>PRD - ${idea.title}</title>
-        <style>
-          @media print {
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
-          body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 800px; margin: 0 auto; padding: 40px; }
-          h1 { color: #1e40af; border-bottom: 3px solid #3b82f6; padding-bottom: 12px; }
-          h2 { color: #1e3a5f; border-bottom: 2px solid #93c5fd; padding-bottom: 8px; margin-top: 32px; page-break-after: avoid; }
-          h3 { color: #374151; margin-top: 20px; page-break-after: avoid; }
-          table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-          th, td { border: 1px solid #d1d5db; padding: 10px; text-align: left; }
-          th { background-color: #f3f4f6; font-weight: 600; }
-          ul, ol { margin: 12px 0; padding-left: 24px; }
-          li { margin: 6px 0; }
-          strong { color: #1e3a5f; }
-          .header { margin-bottom: 32px; }
-          .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #9ca3af; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>Product Requirements Document</h1>
-          <h2 style="border: none; color: #6b7280; font-size: 18px; margin-top: 8px;">${idea.title}</h2>
-          <p style="color: #9ca3af; font-size: 12px;">Generated by Startup Idea Mining Rig • ${new Date().toLocaleDateString()}</p>
-        </div>
-        <hr style="border: 1px solid #e5e7eb; margin: 24px 0;" />
-        ${markdownToHtml(prdOutput)}
-        <div class="footer">
-          <p>This PRD was generated using the Startup Idea Mining Rig powered by AI.</p>
-        </div>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-    printWindow.onload = () => {
-      printWindow.print();
-    };
-  };
-
   const startShaping = async () => {
-    setIsShaping(true);
-    setError(null);
-    setPrdOutput('');
+    if (phaseRun?.isRunning) return;
     setProgress(0);
-    abortControllerRef.current = new AbortController();
+    const ac = new AbortController();
+    const runId = startPhaseRun('shape', ideaId, ac);
 
     try {
       const response = await fetch('/api/mining/shape', {
@@ -316,32 +205,84 @@ export default function ShapeSession({ userContext, idea, marketResearch, modelC
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userContext,
-          idea: `## ${idea.title}\n\n${idea.content}\n\n### VC Analysis:\n${idea.critique || 'No critique available'}`,
+          idea: `## ${idea.title}\n\n${idea.content}`,
+          vcMemo,
           marketResearch,
           modelChoice,
         }),
-        signal: abortControllerRef.current.signal,
+        signal: ac.signal,
       });
 
       if (!response.ok) throw new Error('Failed to shape idea');
 
-      const fullText = await streamToText(response, setPrdOutput);
-      setProgress(100);
+      const fullText = await streamToText(response, (text) => updatePhaseOutput('shape', runId, text));
+      completePhaseRun('shape', runId);
       onComplete?.(fullText);
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        setError('Shaping stopped');
+        failPhaseRun('shape', runId, 'Shaping stopped');
       } else {
-        setError(err instanceof Error ? err.message : 'Shaping failed');
+        failPhaseRun('shape', runId, err instanceof Error ? err.message : 'Shaping failed');
       }
-    } finally {
-      setIsShaping(false);
     }
   };
 
   const stopShaping = () => {
-    abortControllerRef.current?.abort();
-    setIsShaping(false);
+    stopPhaseRun('shape');
+  };
+
+  const downloadMarkdown = () => {
+    const blob = new Blob([prdOutput], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `prd-${idea.title.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadWord = async () => {
+    const bodyHtml = await marked.parse(prdOutput, { async: true });
+    const fullHtml = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta charset="utf-8">
+  <title>PRD — ${idea.title}</title>
+  <style>
+    body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #222; line-height: 1.5; }
+    h1 { font-size: 22pt; color: #111; border-bottom: 2px solid #888; padding-bottom: 6pt; margin-top: 18pt; }
+    h2 { font-size: 16pt; color: #111; margin-top: 18pt; border-bottom: 1px solid #bbb; padding-bottom: 4pt; }
+    h3 { font-size: 13pt; color: #222; margin-top: 14pt; }
+    h4 { font-size: 12pt; color: #333; margin-top: 12pt; }
+    p { margin: 6pt 0; }
+    ul, ol { margin: 6pt 0 6pt 18pt; }
+    li { margin: 2pt 0; }
+    blockquote { border-left: 3px solid #bbb; margin: 8pt 0; padding: 4pt 10pt; color: #555; font-style: italic; }
+    code { font-family: Consolas, monospace; background: #f4f4f4; padding: 1pt 4pt; border-radius: 2pt; font-size: 10pt; }
+    pre { font-family: Consolas, monospace; background: #f4f4f4; padding: 8pt; border-radius: 3pt; font-size: 10pt; white-space: pre-wrap; }
+    table { border-collapse: collapse; margin: 8pt 0; }
+    th, td { border: 1px solid #bbb; padding: 4pt 8pt; text-align: left; }
+    th { background: #eee; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 12pt 0; }
+  </style>
+</head>
+<body>
+${bodyHtml}
+</body>
+</html>`;
+    const blob = new Blob([fullHtml], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `prd-${idea.title.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // Parse sections from PRD output
@@ -491,13 +432,28 @@ export default function ShapeSession({ userContext, idea, marketResearch, modelC
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Raw Output Panel */}
         <Card className="bg-zinc-950 border-zinc-800 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <FileText className={`w-4 h-4 ${isShaping ? 'text-blue-400 animate-pulse' : 'text-zinc-500'}`} />
-            <span className="font-mono text-sm text-zinc-300">PRODUCT MANAGER OUTPUT</span>
-            {isShaping && (
-              <Badge variant="outline" className="text-blue-400 border-blue-400/50 text-xs">
-                SHAPING
-              </Badge>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <FileText className={`w-4 h-4 ${isShaping ? 'text-blue-400 animate-pulse' : 'text-zinc-500'}`} />
+              <span className="font-mono text-sm text-zinc-300">PRODUCT MANAGER OUTPUT</span>
+              {isShaping && (
+                <Badge variant="outline" className="text-blue-400 border-blue-400/50 text-xs">
+                  SHAPING
+                </Badge>
+              )}
+            </div>
+            {prdOutput && !isShaping && (
+              <div className="flex gap-1.5">
+                <Button variant="outline" size="sm" onClick={downloadMarkdown} className="h-7 px-2 font-mono border-zinc-700 text-zinc-400 text-xs">
+                  <FileDown className="w-3.5 h-3.5 mr-1" />.md
+                </Button>
+                <Button variant="outline" size="sm" onClick={downloadWord} className="h-7 px-2 font-mono border-zinc-700 text-zinc-400 text-xs">
+                  <FileText className="w-3.5 h-3.5 mr-1" />Word
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(prdOutput)} className="h-7 px-2 font-mono border-zinc-700 text-zinc-400 text-xs">
+                  <Download className="w-3.5 h-3.5 mr-1" />Copy
+                </Button>
+              </div>
             )}
           </div>
           <div
@@ -537,9 +493,11 @@ export default function ShapeSession({ userContext, idea, marketResearch, modelC
                       <span className="font-mono text-xs font-semibold">{section.label}</span>
                     </div>
                     {content ? (
-                      <div className="max-h-[250px] overflow-y-auto">
-                        {renderSectionContent(content, section.isTable)}
-                      </div>
+                      <ShapeSectionWithTldr
+                        content={content}
+                        isTable={section.isTable}
+                        renderBody={renderSectionContent}
+                      />
                     ) : (
                       <div className="text-xs text-zinc-600 italic">
                         {isShaping ? 'Crafting...' : 'No data'}
@@ -560,88 +518,6 @@ export default function ShapeSession({ userContext, idea, marketResearch, modelC
         </Card>
       </div>
 
-      {/* Quick Stats */}
-      {prdOutput && !isShaping && (
-        <Card className="bg-zinc-900 border-zinc-800 p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-              <LayoutDashboard className="w-5 h-5 text-blue-400" />
-            </div>
-            <div>
-              <h3 className="font-mono text-lg text-zinc-100">PRD Summary</h3>
-              <p className="text-xs text-zinc-500">Product Manager's key outputs</p>
-            </div>
-          </div>
-
-          {(() => {
-            const overview = parseSection('PRODUCT OVERVIEW');
-            const productName = overview.match(/Product Name:?\s*\*?\*?([^\n*]+)/i)?.[1]?.replace(/\*+/g, '').trim();
-            const tagline = overview.match(/Tagline:?\s*\*?\*?([^\n*]+)/i)?.[1]?.replace(/\*+/g, '').trim();
-
-            const metrics = parseSection('SUCCESS METRICS');
-            const northStar = metrics.match(/North Star.*?\n\*?\*?([^\n*]+)/i)?.[1]?.replace(/\*+/g, '').trim();
-
-            const pricing = parseSection('PRICING STRATEGY');
-            const model = pricing.match(/Model:?\s*\*?\*?([^\n*]+)/i)?.[1]?.replace(/\*+/g, '').trim();
-
-            return (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">PRODUCT NAME</div>
-                  <div className="text-lg font-bold text-zinc-100">{productName || 'N/A'}</div>
-                </div>
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800 col-span-2 lg:col-span-1">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">TAGLINE</div>
-                  <div className="text-sm text-zinc-300">{tagline || 'N/A'}</div>
-                </div>
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">PRICING MODEL</div>
-                  <div className="text-lg font-bold text-zinc-100">{model || 'N/A'}</div>
-                </div>
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">NORTH STAR</div>
-                  <div className="text-sm text-zinc-300">{northStar || 'N/A'}</div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Export Buttons */}
-          <div className="mt-6 flex items-center justify-between">
-            <p className="text-sm text-zinc-500">Export your PRD to share with your team</p>
-            <div className="flex gap-3">
-              <Button
-                onClick={exportToWord}
-                variant="outline"
-                className="font-mono border-zinc-700 hover:border-blue-500 hover:text-blue-400"
-              >
-                <FileDown className="w-4 h-4 mr-2" />
-                Export to Word
-              </Button>
-              <Button
-                onClick={exportToPdf}
-                variant="outline"
-                className="font-mono border-zinc-700 hover:border-red-500 hover:text-red-400"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export to PDF
-              </Button>
-            </div>
-          </div>
-
-          {/* Proceed to Architect */}
-          <div className="mt-6 pt-6 border-t border-zinc-800 flex justify-end">
-            <Link href="/blueprint">
-              <Button className="bg-purple-600 hover:bg-purple-700 text-white font-mono">
-                <Code2 className="w-4 h-4 mr-2" />
-                Architect
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </Link>
-          </div>
-        </Card>
-      )}
-
       {/* Error Display */}
       {error && (
         <Card className="bg-red-950/20 border-red-800/50 p-4">
@@ -650,6 +526,43 @@ export default function ShapeSession({ userContext, idea, marketResearch, modelC
             <span className="font-mono text-sm">{error}</span>
           </div>
         </Card>
+      )}
+    </div>
+  );
+}
+
+function ShapeSectionWithTldr({
+  content,
+  isTable,
+  renderBody,
+}: {
+  content: string;
+  isTable: boolean | undefined;
+  renderBody: (body: string, isTable?: boolean) => React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { tldr, body } = extractTldr(content);
+  if (!tldr) {
+    return (
+      <div className="max-h-[250px] overflow-y-auto">
+        {renderBody(content, isTable)}
+      </div>
+    );
+  }
+  return (
+    <div onClick={() => body && setExpanded((v) => !v)} className={body ? 'cursor-pointer' : ''}>
+      <p className="text-sm text-zinc-100 leading-relaxed font-medium mb-1">{tldr}</p>
+      {body && (
+        <>
+          {expanded && (
+            <div className="mt-2 max-h-[350px] overflow-y-auto">
+              {renderBody(body, isTable)}
+            </div>
+          )}
+          <span className="mt-1 text-[11px] font-mono text-zinc-500">
+            {expanded ? '− Hide detail' : '+ Show detail'}
+          </span>
+        </>
       )}
     </div>
   );

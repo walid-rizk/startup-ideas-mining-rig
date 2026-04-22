@@ -24,21 +24,44 @@ import {
   Pencil,
   Eye,
   FileDown,
+  RotateCcw,
 } from 'lucide-react';
 
-function parseRecommendedThesis(output: string): string {
+interface ThesisFields {
+  name: string;
+  coreBet: string;
+  targetMarket: string;
+  customer: string;
+}
+
+function parseThesisCandidate(output: string, thesisNumber: number): ThesisFields | null {
+  const num = String(thesisNumber);
+  const nameMatch = output.match(new RegExp(`##\\s*Thesis\\s+${num}:\\s*(.+)`, 'i'));
+  if (!nameMatch) return null;
+  const name = nameMatch[1].trim().replace(/\s*—\s*(The\s+)?(Obvious|Timing|Counter)[^]*$/i, '').trim();
+
+  const thesisBlock = output.match(
+    new RegExp(`##\\s*Thesis\\s+${num}:[\\s\\S]*?(?=\\n##\\s*Thesis\\s+\\d|\\n##\\s*Recommendation|$)`, 'i')
+  )?.[0] ?? '';
+
+  const extract = (field: string): string => {
+    const m = thesisBlock.match(new RegExp(`\\*\\*${field}:?\\*\\*\\s*([^\\n]+)`, 'i'));
+    return m?.[1]?.trim().replace(/\*+/g, '').trim() ?? '';
+  };
+
+  return {
+    name,
+    coreBet: extract('Core Bet'),
+    targetMarket: extract('Target Market'),
+    customer: extract('Customer'),
+  };
+}
+
+function parseRecommendedThesisFields(output: string): ThesisFields | null {
   const recSection = output.match(/##\s*Recommendation[\s\S]*$/i)?.[0] ?? '';
   const numMatch = recSection.match(/Thesis\s+([123])/i);
-  if (!numMatch) return '';
-  const num = numMatch[1];
-  const coreBetMatch = output.match(
-    new RegExp(`##\\s*Thesis\\s+${num}:[\\s\\S]*?\\*\\*Core Bet:\\*\\*\\s*([^\\n]+)`, 'i')
-  );
-  const nameMatch = output.match(new RegExp(`##\\s*Thesis\\s+${num}:\\s*(.+)`, 'i'));
-  const name = nameMatch?.[1]?.trim() ?? '';
-  const coreBet = coreBetMatch?.[1]?.trim().replace(/\*+/g, '').trim() ?? '';
-  if (name && coreBet) return `${name}\n\n${coreBet}`;
-  return name;
+  if (!numMatch) return null;
+  return parseThesisCandidate(output, parseInt(numMatch[1]));
 }
 
 function downloadMarkdown(text: string, filename: string) {
@@ -60,14 +83,20 @@ export default function IntakePage() {
   const [thesisOutput, setThesisOutput] = useState(session.thesis ?? '');
   const [thesisRunning, setThesisRunning] = useState(false);
   const [thesisError, setThesisError] = useState<string | null>(null);
-  const [chosen, setChosen] = useState('');
+  const [chosenLens, setChosenLens] = useState('');
+  const [chosenTarget, setChosenTarget] = useState('');
+  const [chosenCustomer, setChosenCustomer] = useState('');
   const [saved, setSaved] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Seed the chosen-thesis textarea with the recommendation on first load
   useEffect(() => {
-    if (session.thesis && !chosen) {
-      setChosen(parseRecommendedThesis(session.thesis));
+    if (session.thesis && !chosenLens) {
+      const fields = parseRecommendedThesisFields(session.thesis);
+      if (fields) {
+        setChosenLens(`${fields.name}\n\n${fields.coreBet}`);
+        setChosenTarget(fields.targetMarket);
+        setChosenCustomer(fields.customer);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.thesis]);
@@ -97,8 +126,12 @@ export default function IntakePage() {
       if (!res.ok) throw new Error(`thesis-builder failed (${res.status})`);
       const full = await streamToText(res, setThesisOutput);
       update({ thesis: full });
-      const recommended = parseRecommendedThesis(full);
-      if (recommended) setChosen(recommended);
+      const fields = parseRecommendedThesisFields(full);
+      if (fields) {
+        setChosenLens(`${fields.name}\n\n${fields.coreBet}`);
+        setChosenTarget(fields.targetMarket);
+        setChosenCustomer(fields.customer);
+      }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') setThesisError('Stopped');
       else setThesisError(err instanceof Error ? err.message : 'Thesis generation failed');
@@ -109,14 +142,37 @@ export default function IntakePage() {
 
   const stopThesis = () => abortRef.current?.abort();
 
+  const restartInterview = () => {
+    if (!window.confirm('This will clear your Founder Context, thesis, and interview history. Continue?')) return;
+    update({ founderContext: '', thesis: null, intakeMessages: [] });
+    setThesisOutput('');
+    setChosenLens('');
+    setChosenTarget('');
+    setChosenCustomer('');
+    setSaved(false);
+    setEditContext(false);
+    setShowChat(false);
+  };
+
+  const replaceSectionContent = (ctx: string, heading: string, newBody: string): string => {
+    const re = new RegExp(`(## ${heading}\\n)[\\s\\S]*?(?=\\n## |$)`);
+    if (re.test(ctx)) return ctx.replace(re, `$1${newBody}\n`);
+    return ctx;
+  };
+
   const saveChosenThesis = () => {
-    if (!chosen.trim()) return;
+    if (!chosenLens.trim()) return;
     update((prev) => {
-      const base = prev.founderContext.replace(/\n\n## Chosen Thesis[\s\S]*$/, '').trimEnd();
-      return {
-        thesis: chosen,
-        founderContext: `${base}\n\n## Chosen Thesis\n${chosen.trim()}`,
-      };
+      let ctx = prev.founderContext;
+      ctx = ctx.replace(/\n\n## Chosen Thesis[\s\S]*$/, '').trimEnd();
+      if (chosenTarget.trim()) {
+        ctx = replaceSectionContent(ctx, 'The Target', `Concrete: ${chosenTarget.trim()}`);
+      }
+      ctx = replaceSectionContent(ctx, 'The Lens', `Concrete: ${chosenLens.trim()}`);
+      if (chosenCustomer.trim()) {
+        ctx = replaceSectionContent(ctx, 'The Customer', `Concrete: ${chosenCustomer.trim()}`);
+      }
+      return { founderContext: ctx };
     });
     setSaved(true);
   };
@@ -173,6 +229,15 @@ export default function IntakePage() {
                   >
                     <FileDown className="w-3.5 h-3.5 mr-1" />
                     .md
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={restartInterview}
+                    className="text-zinc-400 hover:text-red-400 font-mono text-xs"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                    Restart
                   </Button>
                 </div>
               </div>
@@ -273,30 +338,53 @@ export default function IntakePage() {
                 <h3 className="font-mono text-sm text-zinc-200">Your Chosen Thesis</h3>
                 {saved && (
                   <Badge className="bg-emerald-900/40 text-emerald-300 border border-emerald-700/50 text-xs ml-2">
-                    Saved &amp; appended to Founder Context
+                    Wired into Founder Context
                   </Badge>
                 )}
               </div>
-              <p className="text-xs text-zinc-500 mb-3">
-                This thesis replaces <code className="text-zinc-400">## The Lens</code> in your Founder Context and guides every downstream skill.
+              <p className="text-xs text-zinc-500 mb-4">
+                Confirming wires Target, Lens, and Customer into your Founder Context as <code className="text-zinc-400">Concrete:</code> — every downstream skill reads these.
               </p>
-              <Textarea
-                value={chosen}
-                onChange={(e) => { setChosen(e.target.value); setSaved(false); }}
-                placeholder="e.g., Automating tribal knowledge in boring B2B industries via Service-as-Software."
-                className="min-h-[120px] bg-zinc-950 border-zinc-700 text-zinc-300 font-mono text-sm"
-              />
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-zinc-500 font-mono mb-1 block">TARGET MARKET</label>
+                  <Textarea
+                    value={chosenTarget}
+                    onChange={(e) => { setChosenTarget(e.target.value); setSaved(false); }}
+                    placeholder="e.g., Mid-market professional services firms (50–500 employees)"
+                    className="min-h-[60px] bg-zinc-950 border-zinc-700 text-zinc-300 font-mono text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-500 font-mono mb-1 block">THESIS / LENS</label>
+                  <Textarea
+                    value={chosenLens}
+                    onChange={(e) => { setChosenLens(e.target.value); setSaved(false); }}
+                    placeholder="e.g., Automating tribal knowledge in boring B2B industries via Service-as-Software"
+                    className="min-h-[80px] bg-zinc-950 border-zinc-700 text-zinc-300 font-mono text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-500 font-mono mb-1 block">CUSTOMER</label>
+                  <Textarea
+                    value={chosenCustomer}
+                    onChange={(e) => { setChosenCustomer(e.target.value); setSaved(false); }}
+                    placeholder="e.g., Operations managers who currently rely on spreadsheets and tribal knowledge"
+                    className="min-h-[60px] bg-zinc-950 border-zinc-700 text-zinc-300 font-mono text-sm"
+                  />
+                </div>
+              </div>
               <div className="mt-3 flex justify-between items-center">
                 <span className="text-xs text-zinc-500 font-mono">
                   {session.thesis
                     ? saved
-                      ? 'Thesis confirmed and wired into your Founder Context.'
-                      : 'Edit above, then confirm to wire it into every downstream skill.'
-                    : 'No thesis saved yet.'}
+                      ? 'Thesis confirmed — Target, Lens, and Customer are now Concrete.'
+                      : 'Edit above, then confirm to wire all three into your Founder Context.'
+                    : 'Generate a thesis first, then pick and confirm.'}
                 </span>
                 <Button
                   onClick={saveChosenThesis}
-                  disabled={!chosen.trim() || saved}
+                  disabled={!chosenLens.trim() || saved}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono"
                 >
                   <CheckCircle className="w-4 h-4 mr-2" />

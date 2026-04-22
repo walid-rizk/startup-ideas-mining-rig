@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,14 +10,27 @@ import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
 import { getVerdictRank } from '@/lib/session';
 import type { IdeaResult } from '@/lib/types';
-import { ArrowRight, Search, Trophy, ChevronRight, FileText } from 'lucide-react';
+import { ArrowRight, Search, Trophy, ChevronRight, FileText, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { reconstructVcMemo } from '@/lib/prompt-builders';
+import { usePhaseRun, getPhaseRun } from '@/lib/phase-status';
 
 export default function VerifyPage() {
   const { session, update, ready } = useSession();
   const [selectedIdea, setSelectedIdea] = useState<IdeaResult | null>(null);
   const [customIdea, setCustomIdea] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const verifyRun = usePhaseRun('verify');
+
+  useEffect(() => {
+    if (!ready) return;
+    const run = getPhaseRun('verify');
+    if (run?.isRunning) {
+      const idea = session.survivors.find(s => s.id === run.ideaId);
+      if (idea) setSelectedIdea(idea);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   if (!ready) return null;
 
@@ -54,6 +67,8 @@ export default function VerifyPage() {
       }
     : null;
 
+  const vcMemo = selectedIdea ? reconstructVcMemo(selectedIdea) : undefined;
+
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col">
       <AppHeader currentPhase="verify" />
@@ -62,7 +77,9 @@ export default function VerifyPage() {
         {selectedIdea && ideaForSession ? (
           <VerifySession
             userContext={session.founderContext}
+            ideaId={selectedIdea.id}
             idea={ideaForSession}
+            vcMemo={vcMemo}
             modelChoice={session.modelChoice}
             initialReport={session.verifications[selectedIdea.id]}
             onComplete={handleComplete}
@@ -78,7 +95,7 @@ export default function VerifyPage() {
                 <div>
                   <h2 className="text-xl font-semibold text-zinc-100">Market Verification</h2>
                   <p className="text-sm text-zinc-400 mt-1">
-                    Select a survivor idea from Phase Mine to run through the Data Miner. The agent will research market
+                    Select a survivor idea to verify. The market research agent will research market
                     size, competitors, and validate your assumptions.
                   </p>
                 </div>
@@ -138,6 +155,12 @@ export default function VerifyPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
+                            {verifyRun?.isRunning && verifyRun.ideaId === idea.id && (
+                              <Badge className="bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 text-xs animate-pulse">
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                Verifying...
+                              </Badge>
+                            )}
                             {hasReport && <Badge className="bg-green-600 text-white text-xs">Verified</Badge>}
                             {idea.verdict && (
                               <Badge className={`${isStrongInvest ? 'bg-emerald-600' : 'bg-emerald-700'} text-white text-xs`}>

@@ -2,6 +2,23 @@
 
 import type { ReactNode } from 'react';
 
+// Pulls out a leading `**TL;DR:** ...` line (if present) from a section body.
+// Returns { tldr, body } where tldr is the headline without the label, and body
+// is the remaining markdown without the TL;DR line. `body` is empty if what
+// remains after the TL;DR has no meaningful content (e.g., just punctuation).
+export function extractTldr(raw: string): { tldr: string; body: string } {
+  const text = raw.trim();
+  if (!text) return { tldr: '', body: '' };
+  const match = text.match(/^\s*\*\*TL;?DR:?\*\*\s*([^\n]+)\n?([\s\S]*)$/i);
+  if (!match) return { tldr: '', body: text };
+  const tldr = match[1].trim().replace(/\*+/g, '').trim();
+  const rawBody = (match[2] ?? '').trim();
+  // Detect bodies that are essentially empty (only punctuation / markdown artifacts).
+  const alphaNum = rawBody.replace(/[^\p{L}\p{N}]/gu, '');
+  const body = alphaNum.length >= 2 ? rawBody : '';
+  return { tldr, body };
+}
+
 // Lightweight markdown-to-React renderer for the structured skill outputs in this app
 // (ideas, memos, theses, founder context). Handles headers, bullets, bold/italic/code,
 // and "**Label:** value" paragraphs. Not a full markdown parser.

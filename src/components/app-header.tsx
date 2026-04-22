@@ -12,7 +12,10 @@ import {
   Package,
   Terminal,
   Home,
+  Loader2,
 } from 'lucide-react';
+import { useMiningStatus } from '@/lib/mining-status';
+import { usePhaseRun } from '@/lib/phase-status';
 
 export type PhaseKey =
   | 'home'
@@ -105,7 +108,36 @@ const PHASES: PhaseDef[] = [
   },
 ];
 
+const PHASE_RUNNING_LABELS: Partial<Record<PhaseKey, string>> = {
+  mine: 'Mining...',
+  verify: 'Verifying...',
+  shape: 'Shaping...',
+  blueprint: 'Building...',
+  synthesize: 'Synth...',
+};
+
+const PHASE_RUNNING_CLASSES: Partial<Record<PhaseKey, string>> = {
+  mine: 'border-red-500 text-red-400 bg-red-500/10 hover:bg-red-500/20 hover:text-red-300',
+  verify: 'border-yellow-500 text-yellow-400 bg-yellow-500/10 hover:bg-yellow-500/20 hover:text-yellow-300',
+  shape: 'border-blue-500 text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 hover:text-blue-300',
+  blueprint: 'border-purple-500 text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 hover:text-purple-300',
+  synthesize: 'border-emerald-500 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 hover:text-emerald-300',
+};
+
 export function AppHeader({ currentPhase }: { currentPhase?: PhaseKey }) {
+  const { isRunning: isMining } = useMiningStatus();
+  const verifyRun = usePhaseRun('verify');
+  const shapeRun = usePhaseRun('shape');
+  const blueprintRun = usePhaseRun('blueprint');
+  const synthesizeRun = usePhaseRun('synthesize');
+
+  const runningPhases = new Set<PhaseKey>();
+  if (isMining) runningPhases.add('mine');
+  if (verifyRun?.isRunning) runningPhases.add('verify');
+  if (shapeRun?.isRunning) runningPhases.add('shape');
+  if (blueprintRun?.isRunning) runningPhases.add('blueprint');
+  if (synthesizeRun?.isRunning) runningPhases.add('synthesize');
+
   return (
     <header className="border-b border-zinc-800 px-6 py-4">
       <div className="max-w-5xl mx-auto">
@@ -135,16 +167,21 @@ export function AppHeader({ currentPhase }: { currentPhase?: PhaseKey }) {
         <nav className="grid grid-cols-7 gap-3">
           {PHASES.map((p) => {
             const isActive = p.key === currentPhase;
+            const isPhaseRunning = runningPhases.has(p.key);
             const Icon = p.icon;
             return (
               <Link key={p.key} href={p.href} className="w-full">
                 <Button
                   variant="outline"
                   size="sm"
-                  className={`w-full font-mono ${isActive ? p.activeClass : p.outlineClass}`}
+                  className={`w-full font-mono truncate ${isActive ? p.activeClass : isPhaseRunning ? PHASE_RUNNING_CLASSES[p.key] : p.outlineClass}`}
                 >
-                  <Icon className="w-4 h-4 mr-2" />
-                  {p.label}
+                  {isPhaseRunning ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Icon className="w-4 h-4 mr-2" />
+                  )}
+                  {isPhaseRunning ? PHASE_RUNNING_LABELS[p.key] : p.label}
                 </Button>
               </Link>
             );

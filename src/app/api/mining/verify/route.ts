@@ -6,9 +6,10 @@ import type { ModelChoice } from "@/lib/types";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userContext, idea, modelChoice } = (await req.json()) as {
+  const { userContext, idea, vcMemo, modelChoice } = (await req.json()) as {
     userContext?: string;
     idea?: string;
+    vcMemo?: string;
     modelChoice?: ModelChoice;
   };
 
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
   return streamSkill({
     skill: "data-miner",
     model: modelChoice ?? DEFAULT_MODEL,
-    userMessage: buildVerifyPrompt({ userContext, ideaMarkdown: idea }),
+    userMessage: buildVerifyPrompt({ userContext, ideaMarkdown: idea, vcMemo }),
     temperature: 0.4,
   });
 }

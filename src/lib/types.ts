@@ -58,6 +58,7 @@ export interface IdeaResult {
   batchNumber: number;
 
   verdict?: Verdict;
+  pinned?: boolean;
   moatScore?: number;
   founderFitScore?: number;
   moatRationale?: string;
@@ -82,6 +83,16 @@ export interface ChatMessage {
   content: string;
 }
 
+// ─── Synthesis ──────────────────────────────────────────────────────
+export interface SynthesisEntry {
+  id: string;
+  createdAt: string;
+  ideaId: string;
+  ideaTitle: string;
+  mode: 'build_packet' | 'investor_brief';
+  content: string;
+}
+
 // ─── Session ─────────────────────────────────────────────────────────
 export interface Session {
   id: string;
@@ -102,6 +113,7 @@ export interface Session {
   prds: Record<string, string>;
   blueprints: Record<string, string>;
   synthesis: string | null;
+  syntheses: SynthesisEntry[];
 }
 
 // ─── API shapes ──────────────────────────────────────────────────────

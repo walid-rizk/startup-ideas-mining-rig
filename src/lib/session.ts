@@ -1,6 +1,6 @@
 "use client";
 import { z } from "zod";
-import type { Session, IdeaResult, Verdict, ModelChoice, ChatMessage } from "./types";
+import type { Session, IdeaResult, Verdict, ModelChoice, ChatMessage, SynthesisEntry } from "./types";
 import { DEFAULT_MODEL } from "./types";
 
 const STORAGE_KEY = "idea-mining-rig.session.v1";
@@ -25,6 +25,7 @@ const ideaResultSchema: z.ZodType<IdeaResult> = z.object({
   rawMarkdown: z.string(),
   batchNumber: z.number(),
   verdict: verdictSchema.optional(),
+  pinned: z.boolean().optional(),
   moatScore: z.number().optional(),
   founderFitScore: z.number().optional(),
   moatRationale: z.string().optional(),
@@ -47,6 +48,15 @@ const modelChoiceSchema: z.ZodType<ModelChoice> = z.object({
   model: z.string(),
 });
 
+const synthesisEntrySchema: z.ZodType<SynthesisEntry> = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  ideaId: z.string(),
+  ideaTitle: z.string(),
+  mode: z.enum(["build_packet", "investor_brief"]),
+  content: z.string(),
+});
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sessionSchema: z.ZodType<Session, any, any> = z.object({
   id: z.string(),
@@ -63,6 +73,7 @@ const sessionSchema: z.ZodType<Session, any, any> = z.object({
   prds: z.record(z.string(), z.string()),
   blueprints: z.record(z.string(), z.string()),
   synthesis: z.string().nullable(),
+  syntheses: z.array(synthesisEntrySchema).default([]),
 });
 
 // ─── Pure helpers ───────────────────────────────────────────────────
@@ -83,7 +94,31 @@ export function createEmptySession(): Session {
     prds: {},
     blueprints: {},
     synthesis: null,
+    syntheses: [],
   };
+}
+
+function deduplicateIdeas(
+  ideas: IdeaResult[],
+  maps: Record<string, string>[],
+): { ideas: IdeaResult[]; maps: Record<string, string>[] } {
+  const seen = new Set<string>();
+  const remapped: Record<string, string>[] = maps.map((m) => ({ ...m }));
+  const deduped = ideas.map((idea) => {
+    if (!seen.has(idea.id)) {
+      seen.add(idea.id);
+      return idea;
+    }
+    const newId = `${idea.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    seen.add(newId);
+    for (const m of remapped) {
+      if (idea.id in m) {
+        m[newId] = m[idea.id];
+      }
+    }
+    return { ...idea, id: newId };
+  });
+  return { ideas: deduped, maps: remapped };
 }
 
 export function loadSession(): Session | null {
@@ -92,6 +127,33 @@ export function loadSession(): Session | null {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = sessionSchema.parse(JSON.parse(raw));
+
+    const { ideas: survivors, maps: [v1, p1, b1] } = deduplicateIdeas(
+      parsed.survivors,
+      [parsed.verifications, parsed.prds, parsed.blueprints],
+    );
+    parsed.survivors = survivors;
+    parsed.verifications = v1;
+    parsed.prds = p1;
+    parsed.blueprints = b1;
+
+    const { ideas: allIdeas } = deduplicateIdeas(parsed.allIdeas, []);
+    parsed.allIdeas = allIdeas;
+
+    const { ideas: discarded } = deduplicateIdeas(parsed.discardedIdeas, []);
+    parsed.discardedIdeas = discarded;
+
+    if (parsed.synthesis && parsed.syntheses.length === 0) {
+      parsed.syntheses = [{
+        id: crypto.randomUUID(),
+        createdAt: parsed.updatedAt,
+        ideaId: parsed.survivors[0]?.id ?? 'unknown',
+        ideaTitle: parsed.survivors[0]?.title ?? 'Unknown Idea',
+        mode: 'build_packet',
+        content: parsed.synthesis,
+      }];
+    }
+
     return parsed;
   } catch (err) {
     console.warn("[session] failed to load, starting fresh:", err);

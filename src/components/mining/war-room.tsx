@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -26,12 +26,15 @@ import {
   Undo2,
   ChevronDown,
   ChevronUp,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ModelChoice, IdeaResult as PublicIdeaResult, Verdict } from '@/lib/types';
 import { streamToText } from '@/lib/streaming';
 import { renderMarkdownBlock } from '@/lib/markdown-render';
+import { useMiningStatus, setMiningStatus, setMiningAbort, getMiningAbort } from '@/lib/mining-status';
 
 type MiningPhase = 'idle' | 'generating' | 'critiquing' | 'complete';
 
@@ -48,6 +51,7 @@ interface IdeaResult {
   content: string;
   critique?: string;
   verdict?: Verdict;
+  pinned?: boolean;
   oneLiner?: string;
   bullCase?: string;
   bearCase?: string;
@@ -73,6 +77,7 @@ interface WarRoomProps {
   onComplete?: (survivors: PublicIdeaResult[], allIdeas: PublicIdeaResult[]) => void;
   onDiscard?: (idea: PublicIdeaResult) => void;
   onRestore?: (idea: PublicIdeaResult) => void;
+  onDeletePermanently?: (idea: PublicIdeaResult) => void;
   initialSurvivors?: PublicIdeaResult[];
   initialAllIdeas?: PublicIdeaResult[];
   discardedIdeas?: PublicIdeaResult[];
@@ -87,6 +92,7 @@ function fromPublicIdeas(ideas: PublicIdeaResult[]): IdeaResult[] {
       content: parts[0] || idea.rawMarkdown,
       critique: parts.length > 1 ? parts.slice(1).join('\n\n---\n\n') : '',
       verdict: idea.verdict,
+      pinned: idea.pinned ?? false,
       oneLiner: idea.oneLiner,
       bullCase: idea.bullCase,
       bearCase: idea.bearCase,
@@ -115,6 +121,7 @@ function toPublicIdeas(ideas: IdeaResult[]): PublicIdeaResult[] {
     rawMarkdown: [idea.content, idea.critique ? `\n\n---\n\n${idea.critique}` : ''].join(''),
     batchNumber: Number(idea.id.split('-')[0]) || 1,
     verdict: idea.verdict,
+    pinned: idea.pinned ?? false,
     moatScore: idea.scores?.moat,
     founderFitScore: idea.scores?.founderFit,
     moatRationale: idea.moatRationale,
@@ -133,7 +140,7 @@ function toPublicIdeas(ideas: IdeaResult[]): PublicIdeaResult[] {
   }));
 }
 
-export default function WarRoom({ userContext, modelChoice, onComplete, onDiscard, onRestore, initialSurvivors, initialAllIdeas, discardedIdeas: externalDiscarded }: WarRoomProps) {
+export default function WarRoom({ userContext, modelChoice, onComplete, onDiscard, onRestore, onDeletePermanently, initialSurvivors, initialAllIdeas, discardedIdeas: externalDiscarded }: WarRoomProps) {
   const [phase, setPhase] = useState<MiningPhase>(() =>
     initialSurvivors && initialSurvivors.length > 0 ? 'complete' : 'idle'
   );
@@ -154,8 +161,28 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   const [customIdea, setCustomIdea] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
+  const ownRunRef = useRef(false);
+  const globalMining = useMiningStatus();
 
   const targetSurvivors = 4;
+
+  const resyncFromProps = useCallback(() => {
+    setSurvivors(initialSurvivors ? fromPublicIdeas(initialSurvivors) : []);
+    setAllIdeas(initialAllIdeas ? fromPublicIdeas(initialAllIdeas) : []);
+    setPhase(initialSurvivors && initialSurvivors.length > 0 ? 'complete' : 'idle');
+    setGeneratedIdeas('');
+    setCritiqueOutput('');
+    setError(null);
+    setIsRunning(false);
+  }, [initialSurvivors, initialAllIdeas]);
+
+  const prevRunningRef = useRef(globalMining.isRunning);
+  useEffect(() => {
+    if (prevRunningRef.current && !globalMining.isRunning && !ownRunRef.current) {
+      resyncFromProps();
+    }
+    prevRunningRef.current = globalMining.isRunning;
+  }, [globalMining.isRunning, resyncFromProps]);
 
   useEffect(() => {
     if (outputRef.current) {
@@ -177,6 +204,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
 
   const parseIdeasFromText = (text: string, batchNum: number): IdeaResult[] => {
     const ideas: IdeaResult[] = [];
+    const ts = Date.now();
 
     // Split text by idea headers to capture full content
     // Pattern matches: "## IDEA 1.1: Title" or "## IDEA 1: Title" or "### IDEA 1: Title"
@@ -191,7 +219,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         const title = headerMatch[2].trim().replace(/\*+$/, '').trim();
         if (title && !ideas.find(idea => idea.title === title)) {
           ideas.push({
-            id: `${batchNum}-${ideas.length + 1}`,
+            id: `${batchNum}-${ideas.length + 1}-${ts}`,
             title,
             content: section.trim(), // Capture full section content
           });
@@ -209,7 +237,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
           const title = headerMatch[2].trim().replace(/\*+$/, '').trim();
           if (title && !ideas.find(idea => idea.title === title)) {
             ideas.push({
-              id: `${batchNum}-${ideas.length + 1}`,
+              id: `${batchNum}-${ideas.length + 1}-${ts}`,
               title,
               content: section.trim(),
             });
@@ -228,7 +256,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
           const title = match[1].replace(/^IDEA\s*\d+[\.:]\s*/i, '').trim();
           if (title && !ideas.find(idea => idea.title === title)) {
             ideas.push({
-              id: `${batchNum}-${ideas.length + 1}`,
+              id: `${batchNum}-${ideas.length + 1}-${ts}`,
               title,
               content: fullSection.trim(),
             });
@@ -399,8 +427,8 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   };
 
   const runBatch = async (batchNumber: number): Promise<IdeaResult[]> => {
-    // Phase 1: Generate ideas
     setPhase('generating');
+    setMiningStatus({ phase: 'generating' });
     setGeneratedIdeas('');
 
     const generateResponse = await fetch('/api/mining/generate', {
@@ -415,8 +443,8 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     const ideasText = await streamToText(generateResponse, setGeneratedIdeas);
     const batchIdeas = parseIdeasFromText(ideasText, batchNumber);
 
-    // Phase 2: Critique ideas
     setPhase('critiquing');
+    setMiningStatus({ phase: 'critiquing' });
     setCritiqueOutput('');
 
     const critiqueResponse = await fetch('/api/mining/critique', {
@@ -433,20 +461,32 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   };
 
   const startMining = async () => {
+    if (globalMining.isRunning) return;
+
+    const pinnedSurvivors = survivors.filter((s) => s.pinned);
+    const pinnedAll = allIdeas.filter((s) => s.pinned);
+
+    ownRunRef.current = true;
     setIsRunning(true);
     setError(null);
-    setSurvivors([]);
-    setAllIdeas([]);
+    setSurvivors(pinnedSurvivors);
+    setAllIdeas(pinnedAll);
     setCurrentBatch(0);
+    setGeneratedIdeas('');
+    setCritiqueOutput('');
+    setPhase('generating');
     abortControllerRef.current = new AbortController();
+    setMiningAbort(abortControllerRef.current);
+    setMiningStatus({ isRunning: true, phase: 'generating', currentBatch: 0 });
 
     try {
-      let currentSurvivors: IdeaResult[] = [];
-      let allBatchIdeas: IdeaResult[] = [];
+      let currentSurvivors: IdeaResult[] = [...pinnedSurvivors];
+      let allBatchIdeas: IdeaResult[] = [...pinnedAll];
       let batch = 1;
 
       while (batch <= maxBatches && currentSurvivors.length < targetSurvivors) {
         setCurrentBatch(batch);
+        setMiningStatus({ currentBatch: batch });
 
         const batchResults = await runBatch(batch);
 
@@ -476,6 +516,9 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       }
 
       setPhase('complete');
+      setMiningStatus({ isRunning: false, phase: 'complete' });
+      setMiningAbort(null);
+      ownRunRef.current = false;
       onComplete?.(toPublicIdeas(currentSurvivors), toPublicIdeas(allBatchIdeas));
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
@@ -484,24 +527,34 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         setError(err instanceof Error ? err.message : 'Mining failed');
       }
       setPhase('idle');
+      setMiningStatus({ isRunning: false, phase: 'idle' });
+      setMiningAbort(null);
+      ownRunRef.current = false;
     } finally {
       setIsRunning(false);
     }
   };
 
   const stopMining = () => {
-    abortControllerRef.current?.abort();
+    const ac = getMiningAbort() ?? abortControllerRef.current;
+    ac?.abort();
     setIsRunning(false);
     setPhase('idle');
+    setMiningStatus({ isRunning: false, phase: 'idle' });
+    setMiningAbort(null);
+    ownRunRef.current = false;
   };
 
   const runCustomIdea = async () => {
-    if (!customIdea.trim() || !userContext) return;
+    if (!customIdea.trim() || !userContext || globalMining.isRunning) return;
+    ownRunRef.current = true;
     setIsRunning(true);
     setError(null);
     setGeneratedIdeas('');
     setCritiqueOutput('');
     abortControllerRef.current = new AbortController();
+    setMiningAbort(abortControllerRef.current);
+    setMiningStatus({ isRunning: true, phase: 'generating', currentBatch: 0 });
 
     try {
       // Phase 1: Futurist develops the raw idea
@@ -522,8 +575,8 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       const framed = parseIdeasFromText(ideaText, 0);
       if (framed.length === 0) throw new Error('Could not parse developed idea');
 
-      // Phase 2: VC Partner critiques
       setPhase('critiquing');
+      setMiningStatus({ phase: 'critiquing' });
       const critRes = await fetch('/api/mining/critique', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -534,14 +587,13 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       const critText = await streamToText(critRes, setCritiqueOutput);
       const withVerdicts = parseVerdicts(critText, framed);
 
-      // Reassign unique IDs (batch 0 collides across submissions)
       const stamp = Date.now();
       const finalized = withVerdicts.map((i, idx) => ({
         ...i,
         id: `custom-${stamp}-${idx + 1}`,
+        pinned: true,
       }));
 
-      // Merge into state — survivors only if INVEST/STRONG_INVEST
       const newSurvivors = finalized.filter(
         (i) => i.verdict && VERDICT_CONFIG[i.verdict]?.survives,
       );
@@ -555,6 +607,9 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       setSurvivors(mergedSurvivors);
       setAllIdeas(mergedAll);
       setPhase('complete');
+      setMiningStatus({ isRunning: false, phase: 'complete' });
+      setMiningAbort(null);
+      ownRunRef.current = false;
       onComplete?.(toPublicIdeas(mergedSurvivors), toPublicIdeas(mergedAll));
 
       setCustomIdea('');
@@ -566,6 +621,9 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         setError(err instanceof Error ? err.message : 'Custom idea run failed');
       }
       setPhase('idle');
+      setMiningStatus({ isRunning: false, phase: 'idle' });
+      setMiningAbort(null);
+      ownRunRef.current = false;
     } finally {
       setIsRunning(false);
     }
@@ -579,6 +637,17 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     setAllIdeas((prev) => prev.filter((s) => s.id !== idea.id));
     const pub = toPublicIdeas([idea])[0];
     onDiscard?.(pub);
+  };
+
+  const handleTogglePin = (idea: IdeaResult, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const toggle = (s: IdeaResult) => (s.id === idea.id ? { ...s, pinned: !s.pinned } : s);
+    setSurvivors((prev) => prev.map(toggle));
+    setAllIdeas((prev) => prev.map(toggle));
+    // Persist to session via onComplete with updated lists
+    const nextSurvivors = survivors.map(toggle);
+    const nextAll = allIdeas.map(toggle);
+    onComplete?.(toPublicIdeas(nextSurvivors), toPublicIdeas(nextAll));
   };
 
   const handleRestore = (pub: PublicIdeaResult) => {
@@ -613,7 +682,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {!isRunning && (
+            {!isRunning && !globalMining.isRunning && (
               <Button
                 onClick={() => setShowCustomInput((v) => !v)}
                 disabled={!userContext}
@@ -624,16 +693,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                 {showCustomInput ? 'Hide' : 'Your Idea'}
               </Button>
             )}
-            {!isRunning ? (
-              <Button
-                onClick={startMining}
-                disabled={!userContext}
-                className="bg-red-600 hover:bg-red-700 text-white font-mono"
-              >
-                <Play className="w-4 h-4 mr-2" />
-                START MINING
-              </Button>
-            ) : (
+            {isRunning || globalMining.isRunning ? (
               <Button
                 onClick={stopMining}
                 variant="destructive"
@@ -641,6 +701,15 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
               >
                 <Square className="w-4 h-4 mr-2" />
                 STOP
+              </Button>
+            ) : (
+              <Button
+                onClick={startMining}
+                disabled={!userContext}
+                className="bg-red-600 hover:bg-red-700 text-white font-mono"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                START MINING
               </Button>
             )}
           </div>
@@ -695,6 +764,19 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
               <span>{survivors.length} / {targetSurvivors} survivors</span>
             </div>
             <Progress value={progress} className="h-2" />
+          </div>
+        )}
+        {globalMining.isRunning && !isRunning && (
+          <div className="mt-4 flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
+            <Loader2 className="w-4 h-4 text-red-400 animate-spin shrink-0" />
+            <div className="flex-1">
+              <span className="text-sm text-red-300 font-mono">
+                Mining in progress (batch {globalMining.currentBatch} • {globalMining.phase})
+              </span>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Results will appear here when the run finishes. You can keep browsing other pages.
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -792,6 +874,17 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                           {config?.label || 'INVEST'}
                         </Badge>
                         <button
+                          onClick={(e) => handleTogglePin(idea, e)}
+                          className={`p-1 rounded transition-colors ${
+                            idea.pinned
+                              ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-400/10'
+                              : 'text-zinc-600 hover:text-amber-400 hover:bg-amber-400/10'
+                          }`}
+                          title={idea.pinned ? 'Unpin — will be wiped on next Start Mining' : 'Pin — preserve across Start Mining runs'}
+                        >
+                          {idea.pinned ? <Pin className="w-3.5 h-3.5 fill-current" /> : <Pin className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
                           onClick={(e) => handleDiscard(idea, e)}
                           className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                           title="Discard idea"
@@ -800,7 +893,9 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                         </button>
                       </div>
                     </div>
-                    <div className="mt-2 text-xs text-zinc-500 font-mono">Click for details →</div>
+                    <div className="mt-2 text-xs text-zinc-500 font-mono">
+                      {idea.pinned ? '📌 Pinned — survives re-mining · ' : ''}Click for details →
+                    </div>
                   </motion.div>
                 );
               })}
@@ -882,6 +977,17 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                         >
                           <Undo2 className="w-3.5 h-3.5" />
                         </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Permanently delete "${idea.title}"? This cannot be undone.`)) {
+                              onDeletePermanently?.(idea);
+                            }
+                          }}
+                          className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                          title="Delete permanently"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -899,9 +1005,14 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
             <div className="text-red-400 font-mono text-sm">{error}</div>
           ) : (
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-emerald-400 font-mono text-sm">
-                <TrendingUp className="w-4 h-4" />
-                Mining complete! Found {survivors.length} investable ideas.
+              <div>
+                <div className="flex items-center gap-2 text-emerald-400 font-mono text-sm">
+                  <TrendingUp className="w-4 h-4" />
+                  Mining complete! Found {survivors.length} investable ideas.
+                </div>
+                <p className="text-xs text-zinc-500 mt-1 ml-6">
+                  Pin ideas to keep them across mining rounds — unpinned ideas are replaced when you run again.
+                </p>
               </div>
               <div className="flex items-center gap-3">
                 <Button
@@ -1001,20 +1112,31 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                   </div>
                   {(() => {
                     const content = selectedIdea.content || '';
+                    // Robust field extractor: captures the first line after the label + any
+                    // following lines that don't start with a new `**Field:**` header or `##`.
+                    // Handles optional "The " prefix and optional surrounding quotes (e.g.
+                    // `**The "Why Now":**`), and strips residual `":` / `:` artifacts that
+                    // leak through when the model wraps the label in quotes.
                     const parseSection = (label: string): string => {
-                      const patterns = [
-                        new RegExp(`\\*\\*${label}:?\\*\\*\\s*([^*]+?)(?=\\*\\*|$)`, 'i'),
-                        new RegExp(`${label}:?\\s*([^\\n]+)`, 'i'),
-                      ];
-                      for (const pattern of patterns) {
-                        const match = content.match(pattern);
-                        if (match) return match[1].trim();
-                      }
-                      return '';
+                      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                      const primary = new RegExp(
+                        `\\*\\*(?:The\\s+)?["']?${escaped}["']?:?\\*\\*\\s*([^\\n]+(?:\\n(?!\\s*(?:\\*\\*|#))[^\\n]*)*)`,
+                        'i',
+                      );
+                      // Fallback: anchored at line start so it doesn't match "Why Now" inside
+                      // another label like **The "Why Now":**.
+                      const fallback = new RegExp(
+                        `(?:^|\\n)\\s*(?:The\\s+)?["']?${escaped}["']?:?\\s*([^\\n]+)`,
+                        'i',
+                      );
+                      const m = content.match(primary) ?? content.match(fallback);
+                      const raw = m?.[1]?.trim().replace(/\*+/g, '').trim() ?? '';
+                      // Defensive: strip any leading quote/colon/punctuation that leaked through
+                      return raw.replace(/^["'`:]+\s*/, '').trim();
                     };
                     const sections = [
                       { key: 'hook', label: 'The Hook', icon: '💡', color: 'text-amber-400', value: parseSection('The Hook') || parseSection('Hook') },
-                      { key: 'whynow', label: 'Why Now', icon: '⚡', color: 'text-cyan-400', value: parseSection('Why Now') || parseSection('The "Why Now"') },
+                      { key: 'whynow', label: 'Why Now', icon: '⚡', color: 'text-cyan-400', value: parseSection('Why Now') },
                       { key: 'problem', label: 'Problem', icon: '🎯', color: 'text-red-400', value: parseSection('Problem') },
                       { key: 'solution', label: 'Solution', icon: '✨', color: 'text-emerald-400', value: parseSection('Solution') },
                       { key: 'target', label: 'Target Customer', icon: '👥', color: 'text-blue-400', value: parseSection('Target Customer') || parseSection('Target') },
@@ -1033,13 +1155,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                       );
                     }
                     return foundSections.map((section) => (
-                      <div key={section.key} className="bg-zinc-900 rounded-lg p-3 border border-zinc-800">
-                        <div className={`text-xs font-mono ${section.color} mb-1 flex items-center gap-2`}>
-                          <span>{section.icon}</span>
-                          <span>{section.label.toUpperCase()}</span>
-                        </div>
-                        <p className="text-sm text-zinc-300 leading-relaxed">{stripMarkdown(section.value)}</p>
-                      </div>
+                      <HeadlineCard key={section.key} card={section} />
                     ));
                   })()}
                 </div>
@@ -1103,19 +1219,25 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                     };
                     const extractBullets = (section: string, fieldName: string): string[] => {
                       const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                      // Require at least one space after the bullet marker so we don't match
+                      // horizontal rules (`---`) or `***` separators as bullets.
                       const m = section.match(
-                        new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\n?((?:\\s*[-*•][^\\n]*\\n?)+)`, 'i'),
+                        new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\n?((?:\\s*[-*•][ \\t]+[^\\n]*\\n?)+)`, 'i'),
                       );
+                      const isSeparator = (s: string) => /^[-*_=]{2,}\s*$/.test(s.trim());
                       if (!m?.[1]) {
                         const flat = extractField(section, fieldName);
                         return flat
-                          ? flat.split(/\n/).map((l) => l.trim()).filter(Boolean)
+                          ? flat
+                              .split(/\n/)
+                              .map((l) => l.trim())
+                              .filter((l) => l && !isSeparator(l))
                           : [];
                       }
                       return m[1]
                         .split('\n')
-                        .map((l) => l.replace(/^\s*[-*•]\s*/, '').replace(/\*+/g, '').trim())
-                        .filter(Boolean);
+                        .map((l) => l.replace(/^\s*[-*•]\s+/, '').replace(/\*+/g, '').trim())
+                        .filter((l) => l && !isSeparator(l));
                     };
                     const extractScoreRationale = (label: string): string => {
                       const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1180,15 +1302,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                           </div>
                         ) : null}
                         {found.map((c) => (
-                          <div key={c.key} className="bg-zinc-900 rounded-lg p-3 border border-zinc-800">
-                            <div className={`text-xs font-mono ${c.color} mb-1 flex items-center gap-2`}>
-                              <span>{c.icon}</span>
-                              <span>{c.label.toUpperCase()}</span>
-                            </div>
-                            <p className="text-sm text-zinc-300 leading-relaxed">
-                              {c.kind === 'quote' ? `"${stripMarkdown(c.value)}"` : stripMarkdown(c.value)}
-                            </p>
-                          </div>
+                          <HeadlineCard key={c.key} card={c} />
                         ))}
                         {keyRiskBullets.length > 0 && (
                           <div className="bg-zinc-900 rounded-lg p-3 border border-zinc-800">
@@ -1225,6 +1339,94 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         )}
       </AnimatePresence>
     </Card>
+  );
+}
+
+// Returns true if a string, after stripping all markdown/punctuation formatting,
+// contains at least 2 real alphanumeric characters. Keeps us from showing a
+// "Show detail" button whose content is just a stray dash, ellipsis, or asterisk.
+function hasMeaningfulText(s: string): boolean {
+  const alphaNum = s.replace(/[^\p{L}\p{N}]/gu, '');
+  return alphaNum.length >= 2;
+}
+
+// Split a field value into a one-sentence headline and supporting bullet/paragraph detail.
+// Works whether the model emits "headline\n- bullet\n- bullet" or a single paragraph.
+function splitHeadline(raw: string): { headline: string; detail: string[] } {
+  const text = raw.trim();
+  if (!text) return { headline: '', detail: [] };
+  const isSeparator = (s: string) => /^[-*_=]{2,}\s*$/.test(s.trim());
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !isSeparator(l));
+  const headlineLine = lines[0]?.replace(/^\*+|\*+$/g, '').trim() ?? '';
+  const rest = lines.slice(1);
+  // Bullet lines must have a real marker followed by a space to avoid matching `---` or `***`.
+  const bulletRest = rest
+    .filter((l) => /^[-*•][ \t]+/.test(l))
+    .map((l) => l.replace(/^[-*•]\s+/, '').replace(/\*+/g, '').trim())
+    .filter(hasMeaningfulText);
+  if (bulletRest.length > 0) return { headline: headlineLine, detail: bulletRest };
+  // Otherwise collapse remaining lines into a single follow-up paragraph
+  const rem = rest
+    .map((l) => l.replace(/^[-*•]\s*/, '').replace(/\*+/g, '').trim())
+    .filter(hasMeaningfulText)
+    .join(' ')
+    .trim();
+  return {
+    headline: headlineLine,
+    detail: hasMeaningfulText(rem) ? [rem] : [],
+  };
+}
+
+interface HeadlineCardData {
+  key: string;
+  label: string;
+  icon: string;
+  color: string;
+  value: string;
+  kind?: 'bullets' | 'quote';
+}
+
+function HeadlineCard({ card }: { card: HeadlineCardData }) {
+  const [expanded, setExpanded] = useState(false);
+  const { headline, detail } = splitHeadline(card.value);
+  const clean = (s: string) => s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/`([^`]+)`/g, '$1');
+  // Only count detail items that will render real content after cleaning.
+  const visibleDetail = detail.filter((d) => hasMeaningfulText(clean(d)));
+  const hasDetail = visibleDetail.length > 0;
+
+  return (
+    <div
+      className={`bg-zinc-900 rounded-lg p-3 border border-zinc-800${hasDetail ? ' cursor-pointer' : ''}`}
+      onClick={() => hasDetail && setExpanded((v) => !v)}
+    >
+      <div className={`text-xs font-mono ${card.color} mb-1.5 flex items-center gap-2`}>
+        <span>{card.icon}</span>
+        <span>{card.label.toUpperCase()}</span>
+      </div>
+      <p className="text-sm text-zinc-100 leading-relaxed font-medium">
+        {card.kind === 'quote' ? `"${clean(headline)}"` : clean(headline)}
+      </p>
+      {hasDetail && (
+        <>
+          {expanded && (
+            <ul className="space-y-1 mt-2">
+              {visibleDetail.map((d, i) => (
+                <li key={i} className="text-sm text-zinc-400 leading-relaxed flex gap-2">
+                  <span className="text-zinc-600 shrink-0">▸</span>
+                  <span>{clean(d)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <span className="mt-1.5 text-[11px] font-mono text-zinc-500">
+            {expanded ? '− Hide detail' : `+ Show ${visibleDetail.length} detail${visibleDetail.length === 1 ? '' : 's'}`}
+          </span>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -1277,7 +1479,7 @@ function ScoreTile({
         />
       </div>
       {rationale && (
-        <p className="text-xs text-zinc-400 leading-relaxed">{rationale}</p>
+        <p className="text-xs text-zinc-400 leading-relaxed">{splitHeadline(rationale).headline}</p>
       )}
     </div>
   );

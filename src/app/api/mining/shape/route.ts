@@ -6,9 +6,10 @@ import type { ModelChoice } from "@/lib/types";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userContext, idea, marketResearch, modelChoice } = (await req.json()) as {
+  const { userContext, idea, vcMemo, marketResearch, modelChoice } = (await req.json()) as {
     userContext?: string;
     idea?: string;
+    vcMemo?: string;
     marketResearch?: string;
     modelChoice?: ModelChoice;
   };
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
     userMessage: buildShapePrompt({
       userContext,
       ideaMarkdown: idea,
+      vcMemo,
       marketResearch,
     }),
     temperature: 0.7,

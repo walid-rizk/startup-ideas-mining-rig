@@ -1,9 +1,16 @@
 // Per-skill user-message builders. The system prompt (from each skills/<name>/SKILL.md)
 // defines role and output contract; the user message just supplies concrete inputs.
 
+import type { IdeaResult } from "./types";
+
 function section(label: string, body: string | null | undefined): string {
   if (!body) return "";
   return `## ${label}\n\n${body.trim()}\n\n---\n\n`;
+}
+
+function sectionOrMarker(label: string, body: string | null | undefined, absentMarker: string): string {
+  if (body && body.trim()) return section(label, body);
+  return section(label, absentMarker);
 }
 
 function todayLong(): string {
@@ -89,14 +96,35 @@ export function buildCritiquePrompt(opts: { userContext: string; ideasMarkdown: 
   ].join("\n");
 }
 
+export function reconstructVcMemo(idea: Pick<IdeaResult, 'title' | 'verdict' | 'moatScore' | 'founderFitScore' | 'oneLiner' | 'bullCase' | 'bearCase' | 'comparableCompanies' | 'marketSizing' | 'unitEconomics' | 'hairOnFireCheck' | 'distributionPlan' | 'keyRisks' | 'whatWouldChangeMind' | 'verdictRationale'>): string {
+  const lines: string[] = [`## VC Partner Memo: ${idea.title}`];
+  if (idea.oneLiner) lines.push(`**One-Liner:** ${idea.oneLiner}`);
+  if (idea.verdict) lines.push(`**Verdict:** ${idea.verdict}`);
+  if (idea.moatScore != null) lines.push(`**Moat Score:** ${idea.moatScore}/10`);
+  if (idea.founderFitScore != null) lines.push(`**Founder Fit Score:** ${idea.founderFitScore}/10`);
+  if (idea.bullCase) lines.push(`**Bull Case:**\n${idea.bullCase}`);
+  if (idea.bearCase) lines.push(`**Bear Case:**\n${idea.bearCase}`);
+  if (idea.comparableCompanies) lines.push(`**Comparable Companies:**\n${idea.comparableCompanies}`);
+  if (idea.marketSizing) lines.push(`**Market Sizing:**\n${idea.marketSizing}`);
+  if (idea.unitEconomics) lines.push(`**Unit Economics First-Cut:**\n${idea.unitEconomics}`);
+  if (idea.hairOnFireCheck) lines.push(`**Hair-on-Fire Check:**\n${idea.hairOnFireCheck}`);
+  if (idea.distributionPlan) lines.push(`**Distribution Plan:**\n${idea.distributionPlan}`);
+  if (idea.keyRisks) lines.push(`**Key Risks:**\n${idea.keyRisks}`);
+  if (idea.whatWouldChangeMind) lines.push(`**What Would Change My Mind:**\n${idea.whatWouldChangeMind}`);
+  if (idea.verdictRationale) lines.push(`**Verdict Rationale:**\n${idea.verdictRationale}`);
+  return lines.join('\n\n');
+}
+
 export function buildVerifyPrompt(opts: {
   userContext: string;
   ideaMarkdown: string;
+  vcMemo?: string | null;
 }): string {
   return [
     temporalAnchor(),
     section("Founder Context", opts.userContext),
     section("Idea to Validate", opts.ideaMarkdown),
+    sectionOrMarker("VC Partner Memo", opts.vcMemo, "No VC partner memo available for this idea."),
     `Produce a Market Research report per your Output Contract. Use web search for competitor and market size claims. Cite sources with dates. Label proxy reasoning explicitly.`,
     `Market size numbers and competitor status must be current as of today's date. Prefer sources dated within the last 18 months; flag any older figure as a proxy.`,
     `The Timing Verdict must be exactly one of: TOO_EARLY | JUST_RIGHT | SATURATED | TAR_PIT.`,
@@ -106,12 +134,14 @@ export function buildVerifyPrompt(opts: {
 export function buildShapePrompt(opts: {
   userContext: string;
   ideaMarkdown: string;
+  vcMemo?: string | null;
   marketResearch?: string | null;
 }): string {
   return [
     section("Founder Context", opts.userContext),
     section("Idea to Shape", opts.ideaMarkdown),
-    section("Market Research (optional)", opts.marketResearch ?? ""),
+    sectionOrMarker("VC Partner Memo", opts.vcMemo, "No VC partner memo available for this idea."),
+    sectionOrMarker("Market Research (Data Miner Report)", opts.marketResearch, "No data-miner report available for this idea."),
     `Produce a PRD per your Output Contract. Be brutal on MVP scope — P0 must be 3-5 features. Specify Time to First Value in minutes.`,
   ].join("\n");
 }
@@ -119,12 +149,16 @@ export function buildShapePrompt(opts: {
 export function buildBlueprintPrompt(opts: {
   userContext: string;
   ideaMarkdown: string;
+  vcMemo?: string | null;
+  marketResearch?: string | null;
   prd?: string | null;
 }): string {
   return [
     section("Founder Context", opts.userContext),
     section("Idea", opts.ideaMarkdown),
-    section("PRD (optional)", opts.prd ?? ""),
+    sectionOrMarker("VC Partner Memo", opts.vcMemo, "No VC partner memo available for this idea."),
+    sectionOrMarker("Market Research (Data Miner Report)", opts.marketResearch, "No data-miner report available for this idea."),
+    sectionOrMarker("PRD (Product Manager)", opts.prd, "No PRD available for this idea."),
     `Produce a Technical Blueprint per your Output Contract. Respect the founder's Constraints — if they're no-code, pick no-code tools. Name the Walking Skeleton first. Favor Buy over Build for commodity capabilities.`,
   ].join("\n");
 }
@@ -152,9 +186,9 @@ export function buildSynthesizePrompt(opts: {
     temporalAnchor(),
     section("Founder Context", opts.userContext),
     section("Survivor Ideas (with verdicts)", opts.survivorsMarkdown),
-    section("Market Research", opts.marketResearch ?? ""),
-    section("PRD", opts.prd ?? ""),
-    section("Technical Blueprint", opts.blueprint ?? ""),
+    sectionOrMarker("Market Research (Data Miner Report)", opts.marketResearch, "Founder skipped verification — no data-miner report available."),
+    sectionOrMarker("PRD (Product Manager)", opts.prd, "Founder skipped shaping — no PRD available."),
+    sectionOrMarker("Technical Blueprint (CTO)", opts.blueprint, "Founder skipped blueprint — no technical plan available."),
     `Use the date from the Temporal Anchor above in the \`*Date:*\` line of your output — verbatim. Do NOT substitute a different date.`,
     `Emit a ${opts.mode === "investor_brief" ? "**Investor Brief**" : "**Build Packet**"} per your Output Contract for that mode.`,
     `Curate, don't dump — pull the sharpest 20% of each artifact. Target ${opts.mode === "investor_brief" ? "~2000" : "~3000"} words.`,

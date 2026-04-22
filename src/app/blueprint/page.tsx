@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,14 +10,27 @@ import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
 import { getVerdictRank } from '@/lib/session';
 import type { IdeaResult } from '@/lib/types';
-import { ArrowRight, Code2, Trophy, ChevronRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Code2, Trophy, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { reconstructVcMemo } from '@/lib/prompt-builders';
+import { usePhaseRun, getPhaseRun } from '@/lib/phase-status';
 
 export default function BlueprintPage() {
   const { session, update, ready } = useSession();
   const [selectedIdea, setSelectedIdea] = useState<IdeaResult | null>(null);
   const [customIdea, setCustomIdea] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const blueprintRun = usePhaseRun('blueprint');
+
+  useEffect(() => {
+    if (!ready) return;
+    const run = getPhaseRun('blueprint');
+    if (run?.isRunning) {
+      const idea = session.survivors.find(s => s.id === run.ideaId);
+      if (idea) setSelectedIdea(idea);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   if (!ready) return null;
 
@@ -54,6 +67,8 @@ export default function BlueprintPage() {
       }
     : null;
 
+  const vcMemo = selectedIdea ? reconstructVcMemo(selectedIdea) : undefined;
+  const marketResearch = selectedIdea ? session.verifications[selectedIdea.id] : undefined;
   const prd = selectedIdea ? session.prds[selectedIdea.id] : undefined;
 
   return (
@@ -64,7 +79,10 @@ export default function BlueprintPage() {
         {selectedIdea && ideaForSession ? (
           <BlueprintSession
             userContext={session.founderContext}
+            ideaId={selectedIdea.id}
             idea={ideaForSession}
+            vcMemo={vcMemo}
+            marketResearch={marketResearch}
             prd={prd}
             modelChoice={session.modelChoice}
             initialBlueprint={session.blueprints[selectedIdea.id]}
@@ -145,6 +163,12 @@ export default function BlueprintPage() {
                             {hasPRD && (
                               <Badge variant="outline" className="text-blue-400 border-blue-400/50 text-xs">
                                 PRD
+                              </Badge>
+                            )}
+                            {blueprintRun?.isRunning && blueprintRun.ideaId === idea.id && (
+                              <Badge className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs animate-pulse">
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                Architecting...
                               </Badge>
                             )}
                             {hasBlueprint && <Badge className="bg-purple-600 text-white text-xs">Blueprinted</Badge>}

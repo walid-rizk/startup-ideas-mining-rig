@@ -9,43 +9,42 @@ import {
   Search,
   Loader2,
   TrendingUp,
-  Users,
   AlertTriangle,
   Clock,
   Building2,
   MessageSquareQuote,
   Skull,
-  CheckCircle,
-  XCircle,
   BarChart3,
-  ArrowRight,
-  FileText,
 } from 'lucide-react';
-import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ModelChoice } from '@/lib/types';
 import { streamToText } from '@/lib/streaming';
+import { extractTldr } from '@/lib/markdown-render';
+import { usePhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, clearPhaseRun, getPhaseRun } from '@/lib/phase-status';
 
 interface VerifySessionProps {
   userContext: string;
+  ideaId: string;
   idea: {
     title: string;
     content: string;
     critique?: string;
   };
+  vcMemo?: string;
   modelChoice: ModelChoice;
   initialReport?: string;
   onComplete?: (report: string) => void;
   onBack?: () => void;
 }
 
-export default function VerifySession({ userContext, idea, modelChoice, initialReport, onComplete, onBack }: VerifySessionProps) {
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [researchOutput, setResearchOutput] = useState(initialReport ?? '');
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+export default function VerifySession({ userContext, ideaId, idea, vcMemo, modelChoice, initialReport, onComplete, onBack }: VerifySessionProps) {
+  const phaseRun = usePhaseRun('verify');
+  const isActiveRun = phaseRun != null && phaseRun.ideaId === ideaId;
+  const isVerifying = !!(isActiveRun && phaseRun!.isRunning);
+  const researchOutput = isActiveRun ? phaseRun!.output : (initialReport ?? '');
+  const error = isActiveRun ? (phaseRun!.error ?? null) : null;
+  const [progress, setProgress] = useState(() => isVerifying ? 30 : (initialReport ? 100 : 0));
   const outputRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (outputRef.current) {
@@ -53,22 +52,31 @@ export default function VerifySession({ userContext, idea, modelChoice, initialR
     }
   }, [researchOutput]);
 
-  // Simulate progress while streaming
   useEffect(() => {
-    if (isVerifying && progress < 90) {
-      const timer = setInterval(() => {
-        setProgress(p => Math.min(p + Math.random() * 5, 90));
-      }, 500);
-      return () => clearInterval(timer);
+    if (isVerifying) {
+      if (progress < 90) {
+        const timer = setInterval(() => {
+          setProgress(p => Math.min(p + Math.random() * 5, 90));
+        }, 500);
+        return () => clearInterval(timer);
+      }
+    } else if (isActiveRun && !error) {
+      setProgress(100);
     }
-  }, [isVerifying, progress]);
+  }, [isVerifying, progress, isActiveRun, error]);
+
+  useEffect(() => {
+    return () => {
+      const run = getPhaseRun('verify');
+      if (run && !run.isRunning) clearPhaseRun('verify');
+    };
+  }, []);
 
   const startVerification = async () => {
-    setIsVerifying(true);
-    setError(null);
-    setResearchOutput('');
+    if (phaseRun?.isRunning) return;
     setProgress(0);
-    abortControllerRef.current = new AbortController();
+    const ac = new AbortController();
+    const runId = startPhaseRun('verify', ideaId, ac);
 
     try {
       const response = await fetch('/api/mining/verify', {
@@ -76,31 +84,29 @@ export default function VerifySession({ userContext, idea, modelChoice, initialR
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userContext,
-          idea: `## ${idea.title}\n\n${idea.content}\n\n### VC Analysis:\n${idea.critique || 'No critique available'}`,
+          idea: `## ${idea.title}\n\n${idea.content}`,
+          vcMemo,
           modelChoice,
         }),
-        signal: abortControllerRef.current.signal,
+        signal: ac.signal,
       });
 
       if (!response.ok) throw new Error('Failed to verify idea');
 
-      const fullText = await streamToText(response, setResearchOutput);
-      setProgress(100);
+      const fullText = await streamToText(response, (text) => updatePhaseOutput('verify', runId, text));
+      completePhaseRun('verify', runId);
       onComplete?.(fullText);
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        setError('Verification stopped');
+        failPhaseRun('verify', runId, 'Verification stopped');
       } else {
-        setError(err instanceof Error ? err.message : 'Verification failed');
+        failPhaseRun('verify', runId, err instanceof Error ? err.message : 'Verification failed');
       }
-    } finally {
-      setIsVerifying(false);
     }
   };
 
   const stopVerification = () => {
-    abortControllerRef.current?.abort();
-    setIsVerifying(false);
+    stopPhaseRun('verify');
   };
 
   // Parse sections from research output
@@ -215,6 +221,48 @@ export default function VerifySession({ userContext, idea, modelChoice, initialR
     { key: 'timing', label: 'TIMING VERDICT', icon: Clock, color: 'text-cyan-400', bgColor: 'bg-cyan-500/10', borderColor: 'border-cyan-500/20' },
   ];
 
+  const inferSignal = (sectionKey: string, content: string): 'strong' | 'mixed' | 'weak' | null => {
+    const lower = content.toLowerCase();
+
+    if (sectionKey === 'market') {
+      if (/sizing check:\*?\*?\s*supported/i.test(content)) return 'strong';
+      if (/sizing check:\*?\*?\s*refined/i.test(content)) return 'mixed';
+      if (/sizing check:\*?\*?\s*(overstated|breaks)/i.test(content)) return 'weak';
+    }
+
+    if (sectionKey === 'customer') {
+      if (/evidence strength:\*?\*?\s*strong/i.test(content)) return 'strong';
+      if (/evidence strength:\*?\*?\s*mixed/i.test(content)) return 'mixed';
+      if (/evidence strength:\*?\*?\s*thin/i.test(content)) return 'weak';
+    }
+
+    if (sectionKey === 'timing') {
+      if (/status:\*?\*?\s*just_right/i.test(content)) return 'strong';
+      if (/status:\*?\*?\s*too_early/i.test(content)) return 'mixed';
+      if (/status:\*?\*?\s*(saturated|tar_pit)/i.test(content)) return 'weak';
+    }
+
+    if (sectionKey === 'competitors') {
+      if (lower.includes('no direct competitor') || lower.includes('white space') || lower.includes('blue ocean')) return 'strong';
+      if (lower.includes('crowded') || lower.includes('dominated by') || lower.includes('red ocean')) return 'weak';
+      return 'mixed';
+    }
+
+    if (sectionKey === 'graveyard') {
+      if (lower.includes('no notable failures') || lower.includes('no dead startups')) return 'strong';
+      if (lower.includes('multiple failures') || lower.includes('graveyard is full') || lower.includes('many have tried')) return 'weak';
+      return 'mixed';
+    }
+
+    if (sectionKey === 'risks') {
+      if (lower.includes('low risk') || lower.includes('minimal regulatory') || lower.includes('no major')) return 'strong';
+      if (lower.includes('high risk') || lower.includes('significant regulatory') || lower.includes('major barrier') || lower.includes('legal minefield')) return 'weak';
+      return 'mixed';
+    }
+
+    return null;
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Idea Summary Card */}
@@ -323,11 +371,14 @@ export default function VerifySession({ userContext, idea, modelChoice, initialR
                     <div className={`flex items-center gap-2 mb-3 ${section.color}`}>
                       <section.icon className="w-4 h-4" />
                       <span className="font-mono text-xs font-semibold">{section.label}</span>
+                      {content && <SignalBadge signal={inferSignal(section.key, content)} />}
                     </div>
                     {content ? (
-                      <div className="max-h-[300px] overflow-y-auto">
-                        {renderSectionContent(section.key, content)}
-                      </div>
+                      <SectionWithTldr
+                        sectionKey={section.key}
+                        content={content}
+                        renderBody={renderSectionContent}
+                      />
                     ) : (
                       <div className="text-xs text-zinc-600 italic">
                         {isVerifying ? 'Analyzing...' : 'No data'}
@@ -348,86 +399,6 @@ export default function VerifySession({ userContext, idea, modelChoice, initialR
         </Card>
       </div>
 
-      {/* Verdict Summary */}
-      {researchOutput && !isVerifying && (
-        <Card className="bg-zinc-900 border-zinc-800 p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
-              <Clock className="w-5 h-5 text-cyan-400" />
-            </div>
-            <div>
-              <h3 className="font-mono text-lg text-zinc-100">Timing Verdict Summary</h3>
-              <p className="text-xs text-zinc-500">Data Miner's final assessment</p>
-            </div>
-          </div>
-
-          {(() => {
-            const timing = parseSection('TIMING VERDICT');
-            const marketSnapshot = parseSection('MARKET SNAPSHOT');
-            const reRankingSection = parseSection('RE-RANKING SIGNAL');
-
-            const getField = (sectionContent: string, fieldName: string): string => {
-              const patterns = [
-                new RegExp(`\\*\\*${fieldName}:?\\*\\*\\s*\\*?\\*?([^\\n]+)`, 'i'),
-                new RegExp(`${fieldName}:?\\s+([^\\n]+)`, 'i'),
-              ];
-              for (const pattern of patterns) {
-                const match = sectionContent.match(pattern);
-                if (match?.[1]?.trim()) {
-                  return match[1].trim().replace(/\*+/g, '').trim();
-                }
-              }
-              return '';
-            };
-
-            const status = getField(timing, 'Status');
-            const rationale = getField(timing, 'Rationale');
-            const timingSignal = getField(marketSnapshot, 'Timing Signal');
-
-            const statusColor = status === 'JUST_RIGHT' ? 'text-emerald-400'
-              : status === 'TOO_EARLY' ? 'text-amber-400'
-              : (status === 'SATURATED' || status === 'TAR_PIT') ? 'text-red-400'
-              : 'text-zinc-100';
-
-            return (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">TIMING STATUS</div>
-                  <div className={`text-base font-bold flex items-center gap-2 ${statusColor}`}>
-                    {status === 'JUST_RIGHT' && <CheckCircle className="w-4 h-4" />}
-                    {(status === 'SATURATED' || status === 'TAR_PIT') && <XCircle className="w-4 h-4" />}
-                    {status || 'N/A'}
-                  </div>
-                </div>
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">TIMING SIGNAL</div>
-                  <div className="text-sm text-zinc-300">{timingSignal || 'N/A'}</div>
-                </div>
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">RE-RANKING</div>
-                  <div className="text-sm text-zinc-300 whitespace-pre-wrap">{reRankingSection || 'N/A'}</div>
-                </div>
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800 col-span-2 lg:col-span-1">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">RATIONALE</div>
-                  <div className="text-sm text-zinc-300">{rationale || 'N/A'}</div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Proceed to Shape */}
-          <div className="mt-6 flex justify-end">
-            <Link href="/shape">
-              <Button className="bg-blue-600 hover:bg-blue-700 text-white font-mono">
-                <FileText className="w-4 h-4 mr-2" />
-                Shape
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </Link>
-          </div>
-        </Card>
-      )}
-
       {/* Error Display */}
       {error && (
         <Card className="bg-red-950/20 border-red-800/50 p-4">
@@ -436,6 +407,57 @@ export default function VerifySession({ userContext, idea, modelChoice, initialR
             <span className="font-mono text-sm">{error}</span>
           </div>
         </Card>
+      )}
+    </div>
+  );
+}
+
+function SignalBadge({ signal }: { signal: 'strong' | 'mixed' | 'weak' | null }) {
+  if (!signal) return null;
+  const config = {
+    strong: { label: 'Strong', className: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+    mixed: { label: 'Mixed', className: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
+    weak: { label: 'Weak', className: 'bg-red-500/20 text-red-300 border-red-500/30' },
+  }[signal];
+  return (
+    <span className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold border ${config.className}`}>
+      {config.label}
+    </span>
+  );
+}
+
+function SectionWithTldr({
+  sectionKey,
+  content,
+  renderBody,
+}: {
+  sectionKey: string;
+  content: string;
+  renderBody: (key: string, body: string) => React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { tldr, body } = extractTldr(content);
+  if (!tldr) {
+    return (
+      <div className="max-h-[300px] overflow-y-auto">
+        {renderBody(sectionKey, content)}
+      </div>
+    );
+  }
+  return (
+    <div onClick={() => body && setExpanded((v) => !v)} className={body ? 'cursor-pointer' : ''}>
+      <p className="text-sm text-zinc-100 leading-relaxed font-medium mb-1">{tldr}</p>
+      {body && (
+        <>
+          {expanded && (
+            <div className="mt-2 max-h-[400px] overflow-y-auto">
+              {renderBody(sectionKey, body)}
+            </div>
+          )}
+          <span className="mt-1 text-[11px] font-mono text-zinc-500">
+            {expanded ? '− Hide detail' : '+ Show detail'}
+          </span>
+        </>
       )}
     </div>
   );

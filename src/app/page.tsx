@@ -24,6 +24,11 @@ import {
   Undo2,
   ChevronDown,
   ChevronUp,
+  Pin,
+  Lightbulb,
+  Search,
+  FileText,
+  Code2,
 } from 'lucide-react';
 
 export default function Home() {
@@ -40,6 +45,13 @@ export default function Home() {
     }));
   };
 
+  const togglePin = (idea: PublicIdeaResult) => {
+    update((prev) => ({
+      survivors: prev.survivors.map((s) => (s.id === idea.id ? { ...s, pinned: !s.pinned } : s)),
+      allIdeas: prev.allIdeas.map((s) => (s.id === idea.id ? { ...s, pinned: !s.pinned } : s)),
+    }));
+  };
+
   const restoreIdea = (idea: PublicIdeaResult) => {
     update((prev) => ({
       discardedIdeas: prev.discardedIdeas.filter((d) => d.id !== idea.id),
@@ -48,6 +60,24 @@ export default function Home() {
         : prev.survivors,
       allIdeas: [...prev.allIdeas, idea],
     }));
+  };
+
+  const deleteIdeaPermanently = (idea: PublicIdeaResult) => {
+    if (!confirm(`Permanently delete "${idea.title}"? This cannot be undone.`)) return;
+    update((prev) => {
+      const verifications = { ...prev.verifications };
+      delete verifications[idea.id];
+      const prds = { ...prev.prds };
+      delete prds[idea.id];
+      const blueprints = { ...prev.blueprints };
+      delete blueprints[idea.id];
+      return {
+        discardedIdeas: prev.discardedIdeas.filter((d) => d.id !== idea.id),
+        verifications,
+        prds,
+        blueprints,
+      };
+    });
   };
 
   const hasIntake = session.founderContext.trim().length > 0;
@@ -146,6 +176,21 @@ export default function Home() {
                 )}
               </Card>
 
+              {/* Lifetime stats */}
+              {(session.allIdeas.length + session.discardedIdeas.length) > 0 && (
+                <LifetimeStats
+                  ideasMined={session.allIdeas.length + session.discardedIdeas.length}
+                  survivors={
+                    [...session.allIdeas, ...session.discardedIdeas].filter(
+                      (i) => i.verdict === 'STRONG_INVEST' || i.verdict === 'INVEST',
+                    ).length
+                  }
+                  verified={Object.keys(session.verifications).length}
+                  prds={Object.keys(session.prds).length}
+                  blueprints={Object.keys(session.blueprints).length}
+                />
+              )}
+
               {/* Survivors matrix */}
               <Card className="bg-zinc-900 border-zinc-800 p-5">
                 <div className="flex items-center justify-between mb-4">
@@ -185,11 +230,11 @@ export default function Home() {
                       <div>Idea</div>
                       <div className="w-14 text-center">Moat</div>
                       <div className="w-20 text-center">Founder&nbsp;Fit</div>
-                      <div className="w-16 text-center">Verdict</div>
+                      <div className="w-28 text-center">Verdict</div>
                       <div className="w-16 text-center">Verify</div>
                       <div className="w-16 text-center">Shape</div>
                       <div className="w-16 text-center">Architect</div>
-                      <div className="w-8"></div>
+                      <div className="w-16"></div>
                     </div>
                     {survivors.map((s) => {
                       const verified = !!session.verifications[s.id];
@@ -213,15 +258,26 @@ export default function Home() {
                           </div>
                           <DashboardScore score={s.moatScore ?? 0} width="w-14" />
                           <DashboardScore score={s.founderFitScore ?? 0} width="w-20" />
-                          <div className="w-16 flex justify-center">
-                            <Badge className={`text-[10px] ${isStrong ? 'bg-emerald-600' : 'bg-emerald-700'} text-white`}>
-                              {isStrong ? 'STRONG' : 'INVEST'}
+                          <div className="w-28 flex justify-center">
+                            <Badge className={`text-[10px] whitespace-nowrap ${isStrong ? 'bg-emerald-600' : 'bg-emerald-700'} text-white`}>
+                              {isStrong ? 'STRONG INVEST' : 'INVEST'}
                             </Badge>
                           </div>
                           <PhaseCell href="/verify" done={verified} />
                           <PhaseCell href="/shape" done={shaped} />
                           <PhaseCell href="/blueprint" done={blueprinted} />
-                          <div className="w-8 flex justify-center">
+                          <div className="w-16 flex justify-center gap-1">
+                            <button
+                              onClick={() => togglePin(s)}
+                              className={`p-1 rounded transition-colors ${
+                                s.pinned
+                                  ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-400/10'
+                                  : 'text-zinc-600 hover:text-amber-400 hover:bg-amber-400/10'
+                              }`}
+                              title={s.pinned ? 'Unpin — will be wiped on next Start Mining' : 'Pin — preserve across Start Mining runs'}
+                            >
+                              <Pin className={`w-3.5 h-3.5 ${s.pinned ? 'fill-current' : ''}`} />
+                            </button>
                             <button
                               onClick={() => discardIdea(s)}
                               className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
@@ -298,6 +354,13 @@ export default function Home() {
                             >
                               <Undo2 className="w-3.5 h-3.5" />
                             </button>
+                            <button
+                              onClick={() => deleteIdeaPermanently(idea)}
+                              className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-400/10 transition-colors shrink-0"
+                              title="Delete permanently"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -348,6 +411,58 @@ function PhaseCell({ href, done }: { href: string; done: boolean }) {
         <Circle className="w-5 h-5 text-zinc-600 hover:text-zinc-400 transition-colors" />
       )}
     </Link>
+  );
+}
+
+function LifetimeStats({
+  ideasMined,
+  survivors,
+  verified,
+  prds,
+  blueprints,
+}: {
+  ideasMined: number;
+  survivors: number;
+  verified: number;
+  prds: number;
+  blueprints: number;
+}) {
+  const stats = [
+    { label: 'Mined', value: ideasMined, icon: Lightbulb, color: 'text-orange-400', bar: 'bg-orange-500' },
+    { label: 'Survived', value: survivors, icon: Trophy, color: 'text-emerald-400', bar: 'bg-emerald-500' },
+    { label: 'Verified', value: verified, icon: Search, color: 'text-yellow-400', bar: 'bg-yellow-500' },
+    { label: 'PRDs', value: prds, icon: FileText, color: 'text-blue-400', bar: 'bg-blue-500' },
+    { label: 'Blueprints', value: blueprints, icon: Code2, color: 'text-purple-400', bar: 'bg-purple-500' },
+  ];
+
+  const max = Math.max(...stats.map((s) => s.value), 1);
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 mb-2 px-1">
+        <Pickaxe className="w-3 h-3 text-zinc-600" />
+        <span className="text-[10px] text-zinc-600 font-mono uppercase tracking-widest">All-time totals</span>
+      </div>
+      <div className="grid grid-cols-5 gap-2">
+      {stats.map((stat) => (
+        <div key={stat.label} className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 flex items-center gap-2.5">
+          <stat.icon className={`w-3.5 h-3.5 ${stat.color} shrink-0`} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-lg font-bold font-mono leading-none ${stat.color}`}>{stat.value}</span>
+              <span className="text-[10px] text-zinc-500 font-mono uppercase">{stat.label}</span>
+            </div>
+            <div className="w-full h-0.5 rounded-full bg-zinc-800 mt-1.5 overflow-hidden">
+              <div
+                className={`h-full rounded-full ${stat.bar} transition-all duration-500`}
+                style={{ width: `${(stat.value / max) * 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+      </div>
+    </div>
   );
 }
 

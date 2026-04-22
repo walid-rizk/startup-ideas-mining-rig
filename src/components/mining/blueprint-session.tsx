@@ -17,22 +17,29 @@ import {
   FolderTree,
   Terminal,
   Cpu,
-  Download,
-  FileDown,
   Wrench,
   Box,
+  Download,
+  FileDown,
+  FileText,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ModelChoice } from '@/lib/types';
 import { streamToText } from '@/lib/streaming';
+import { extractTldr } from '@/lib/markdown-render';
+import { marked } from 'marked';
+import { usePhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, clearPhaseRun, getPhaseRun } from '@/lib/phase-status';
 
 interface BlueprintSessionProps {
   userContext: string;
+  ideaId: string;
   idea: {
     title: string;
     content: string;
     critique?: string;
   };
+  vcMemo?: string;
+  marketResearch?: string;
   prd?: string;
   modelChoice: ModelChoice;
   initialBlueprint?: string;
@@ -40,13 +47,14 @@ interface BlueprintSessionProps {
   onBack?: () => void;
 }
 
-export default function BlueprintSession({ userContext, idea, prd, modelChoice, initialBlueprint, onComplete, onBack }: BlueprintSessionProps) {
-  const [isBuilding, setIsBuilding] = useState(false);
-  const [blueprintOutput, setBlueprintOutput] = useState(initialBlueprint ?? '');
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+export default function BlueprintSession({ userContext, ideaId, idea, vcMemo, marketResearch, prd, modelChoice, initialBlueprint, onComplete, onBack }: BlueprintSessionProps) {
+  const phaseRun = usePhaseRun('blueprint');
+  const isActiveRun = phaseRun != null && phaseRun.ideaId === ideaId;
+  const isBuilding = !!(isActiveRun && phaseRun!.isRunning);
+  const blueprintOutput = isActiveRun ? phaseRun!.output : (initialBlueprint ?? '');
+  const error = isActiveRun ? (phaseRun!.error ?? null) : null;
+  const [progress, setProgress] = useState(() => isBuilding ? 30 : (initialBlueprint ? 100 : 0));
   const outputRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (outputRef.current) {
@@ -55,13 +63,24 @@ export default function BlueprintSession({ userContext, idea, prd, modelChoice, 
   }, [blueprintOutput]);
 
   useEffect(() => {
-    if (isBuilding && progress < 90) {
-      const timer = setInterval(() => {
-        setProgress(p => Math.min(p + Math.random() * 4, 90));
-      }, 500);
-      return () => clearInterval(timer);
+    if (isBuilding) {
+      if (progress < 90) {
+        const timer = setInterval(() => {
+          setProgress(p => Math.min(p + Math.random() * 4, 90));
+        }, 500);
+        return () => clearInterval(timer);
+      }
+    } else if (isActiveRun && !error) {
+      setProgress(100);
     }
-  }, [isBuilding, progress]);
+  }, [isBuilding, progress, isActiveRun, error]);
+
+  useEffect(() => {
+    return () => {
+      const run = getPhaseRun('blueprint');
+      if (run && !run.isRunning) clearPhaseRun('blueprint');
+    };
+  }, []);
 
   // Strip markdown formatting
   const stripMarkdown = (text: string): string => {
@@ -160,11 +179,10 @@ export default function BlueprintSession({ userContext, idea, prd, modelChoice, 
   };
 
   const startBlueprint = async () => {
-    setIsBuilding(true);
-    setError(null);
-    setBlueprintOutput('');
+    if (phaseRun?.isRunning) return;
     setProgress(0);
-    abortControllerRef.current = new AbortController();
+    const ac = new AbortController();
+    const runId = startPhaseRun('blueprint', ideaId, ac);
 
     try {
       const response = await fetch('/api/mining/blueprint', {
@@ -172,32 +190,85 @@ export default function BlueprintSession({ userContext, idea, prd, modelChoice, 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userContext,
-          idea: `## ${idea.title}\n\n${idea.content}\n\n### VC Analysis:\n${idea.critique || 'No critique available'}`,
+          idea: `## ${idea.title}\n\n${idea.content}`,
+          vcMemo,
+          marketResearch,
           prd,
           modelChoice,
         }),
-        signal: abortControllerRef.current.signal,
+        signal: ac.signal,
       });
 
       if (!response.ok) throw new Error('Failed to create blueprint');
 
-      const fullText = await streamToText(response, setBlueprintOutput);
-      setProgress(100);
+      const fullText = await streamToText(response, (text) => updatePhaseOutput('blueprint', runId, text));
+      completePhaseRun('blueprint', runId);
       onComplete?.(fullText);
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        setError('Blueprint generation stopped');
+        failPhaseRun('blueprint', runId, 'Blueprint generation stopped');
       } else {
-        setError(err instanceof Error ? err.message : 'Blueprint generation failed');
+        failPhaseRun('blueprint', runId, err instanceof Error ? err.message : 'Blueprint generation failed');
       }
-    } finally {
-      setIsBuilding(false);
     }
   };
 
   const stopBlueprint = () => {
-    abortControllerRef.current?.abort();
-    setIsBuilding(false);
+    stopPhaseRun('blueprint');
+  };
+
+  const downloadMarkdown = () => {
+    const blob = new Blob([blueprintOutput], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `blueprint-${idea.title.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadWord = async () => {
+    const bodyHtml = await marked.parse(blueprintOutput, { async: true });
+    const fullHtml = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta charset="utf-8">
+  <title>Blueprint — ${idea.title}</title>
+  <style>
+    body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #222; line-height: 1.5; }
+    h1 { font-size: 22pt; color: #111; border-bottom: 2px solid #888; padding-bottom: 6pt; margin-top: 18pt; }
+    h2 { font-size: 16pt; color: #111; margin-top: 18pt; border-bottom: 1px solid #bbb; padding-bottom: 4pt; }
+    h3 { font-size: 13pt; color: #222; margin-top: 14pt; }
+    h4 { font-size: 12pt; color: #333; margin-top: 12pt; }
+    p { margin: 6pt 0; }
+    ul, ol { margin: 6pt 0 6pt 18pt; }
+    li { margin: 2pt 0; }
+    blockquote { border-left: 3px solid #bbb; margin: 8pt 0; padding: 4pt 10pt; color: #555; font-style: italic; }
+    code { font-family: Consolas, monospace; background: #f4f4f4; padding: 1pt 4pt; border-radius: 2pt; font-size: 10pt; }
+    pre { font-family: Consolas, monospace; background: #f4f4f4; padding: 8pt; border-radius: 3pt; font-size: 10pt; white-space: pre-wrap; }
+    table { border-collapse: collapse; margin: 8pt 0; }
+    th, td { border: 1px solid #bbb; padding: 4pt 8pt; text-align: left; }
+    th { background: #eee; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 12pt 0; }
+  </style>
+</head>
+<body>
+${bodyHtml}
+</body>
+</html>`;
+    const blob = new Blob([fullHtml], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `blueprint-${idea.title.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // Parse sections from blueprint output
@@ -267,115 +338,6 @@ export default function BlueprintSession({ userContext, idea, prd, modelChoice, 
         {formatMarkdown(content)}
       </div>
     );
-  };
-
-  // Convert markdown to HTML for export
-  const markdownToHtml = (markdown: string): string => {
-    return markdown
-      .replace(/^## (.+)$/gm, '<h2 style="color: #1a1a1a; border-bottom: 2px solid #8b5cf6; padding-bottom: 8px; margin-top: 24px;">$1</h2>')
-      .replace(/^### (.+)$/gm, '<h3 style="color: #374151; margin-top: 16px;">$1</h3>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/`([^`]+)`/g, '<code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: monospace;">$1</code>')
-      .replace(/```[\s\S]*?```/g, (match) => {
-        const code = match.replace(/```\w*\n?/g, '').trim();
-        return `<pre style="background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 8px; overflow-x: auto; font-family: monospace; font-size: 12px;">${code}</pre>`;
-      })
-      .replace(/\|(.+)\|/g, (match) => {
-        const cells = match.split('|').filter(c => c.trim());
-        if (cells.some(c => /^[-:]+$/.test(c.trim()))) return '';
-        const cellTags = cells.map(c => `<td style="border: 1px solid #e5e7eb; padding: 8px;">${c.trim()}</td>`).join('');
-        return `<tr>${cellTags}</tr>`;
-      })
-      .replace(/- \[ \] (.+)/g, '<p style="margin: 4px 0;">☐ $1</p>')
-      .replace(/- \[x\] (.+)/gi, '<p style="margin: 4px 0;">☑ $1</p>')
-      .replace(/^- (.+)$/gm, '<li style="margin: 4px 0;">$1</li>')
-      .replace(/^(\d+)\. (.+)$/gm, '<li style="margin: 4px 0;">$2</li>')
-      .replace(/\n\n/g, '</p><p style="margin: 12px 0;">')
-      .replace(/\n/g, '<br/>');
-  };
-
-  // Export to Word
-  const exportToWord = () => {
-    const htmlContent = `
-      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">
-      <head>
-        <meta charset="utf-8">
-        <title>Technical Blueprint - ${idea.title}</title>
-        <style>
-          body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 800px; margin: 0 auto; padding: 40px; }
-          h1 { color: #5b21b6; border-bottom: 3px solid #8b5cf6; padding-bottom: 12px; }
-          h2 { color: #4c1d95; border-bottom: 2px solid #c4b5fd; padding-bottom: 8px; margin-top: 32px; }
-          h3 { color: #374151; margin-top: 20px; }
-          pre { background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 8px; font-family: 'Consolas', monospace; font-size: 12px; white-space: pre-wrap; }
-          code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: 'Consolas', monospace; }
-          table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-          th, td { border: 1px solid #e5e7eb; padding: 10px; text-align: left; }
-          th { background-color: #f3f4f6; font-weight: 600; }
-        </style>
-      </head>
-      <body>
-        <h1>Technical Blueprint</h1>
-        <h2 style="border: none; color: #6b7280; font-size: 18px;">${idea.title}</h2>
-        <p style="color: #9ca3af; font-size: 12px;">Generated by Startup Idea Mining Rig • ${new Date().toLocaleDateString()}</p>
-        <hr style="border: 1px solid #e5e7eb; margin: 24px 0;" />
-        ${markdownToHtml(blueprintOutput)}
-      </body>
-      </html>
-    `;
-
-    const blob = new Blob([htmlContent], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Blueprint-${idea.title.replace(/[^a-zA-Z0-9]/g, '-')}.doc`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  // Export to PDF
-  const exportToPdf = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Please allow popups to export PDF');
-      return;
-    }
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Technical Blueprint - ${idea.title}</title>
-        <style>
-          @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-          body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; max-width: 800px; margin: 0 auto; padding: 40px; }
-          h1 { color: #5b21b6; border-bottom: 3px solid #8b5cf6; padding-bottom: 12px; }
-          h2 { color: #4c1d95; border-bottom: 2px solid #c4b5fd; padding-bottom: 8px; margin-top: 32px; page-break-after: avoid; }
-          h3 { color: #374151; margin-top: 20px; page-break-after: avoid; }
-          pre { background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 8px; font-family: 'Consolas', monospace; font-size: 11px; white-space: pre-wrap; page-break-inside: avoid; }
-          code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: 'Consolas', monospace; }
-          table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-          th, td { border: 1px solid #d1d5db; padding: 10px; text-align: left; }
-          th { background-color: #f3f4f6; font-weight: 600; }
-        </style>
-      </head>
-      <body>
-        <h1>Technical Blueprint</h1>
-        <h2 style="border: none; color: #6b7280; font-size: 18px; margin-top: 8px;">${idea.title}</h2>
-        <p style="color: #9ca3af; font-size: 12px;">Generated by Startup Idea Mining Rig • ${new Date().toLocaleDateString()}</p>
-        <hr style="border: 1px solid #e5e7eb; margin: 24px 0;" />
-        ${markdownToHtml(blueprintOutput)}
-      </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-    printWindow.onload = () => {
-      printWindow.print();
-    };
   };
 
   const sections = [
@@ -456,13 +418,28 @@ export default function BlueprintSession({ userContext, idea, prd, modelChoice, 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Raw Output Panel */}
         <Card className="bg-zinc-950 border-zinc-800 p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Code2 className={`w-4 h-4 ${isBuilding ? 'text-purple-400 animate-pulse' : 'text-zinc-500'}`} />
-            <span className="font-mono text-sm text-zinc-300">CTO OUTPUT</span>
-            {isBuilding && (
-              <Badge variant="outline" className="text-purple-400 border-purple-400/50 text-xs">
-                ARCHITECTING
-              </Badge>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Code2 className={`w-4 h-4 ${isBuilding ? 'text-purple-400 animate-pulse' : 'text-zinc-500'}`} />
+              <span className="font-mono text-sm text-zinc-300">CTO OUTPUT</span>
+              {isBuilding && (
+                <Badge variant="outline" className="text-purple-400 border-purple-400/50 text-xs">
+                  ARCHITECTING
+                </Badge>
+              )}
+            </div>
+            {blueprintOutput && !isBuilding && (
+              <div className="flex gap-1.5">
+                <Button variant="outline" size="sm" onClick={downloadMarkdown} className="h-7 px-2 font-mono border-zinc-700 text-zinc-400 text-xs">
+                  <FileDown className="w-3.5 h-3.5 mr-1" />.md
+                </Button>
+                <Button variant="outline" size="sm" onClick={downloadWord} className="h-7 px-2 font-mono border-zinc-700 text-zinc-400 text-xs">
+                  <FileText className="w-3.5 h-3.5 mr-1" />Word
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(blueprintOutput)} className="h-7 px-2 font-mono border-zinc-700 text-zinc-400 text-xs">
+                  <Download className="w-3.5 h-3.5 mr-1" />Copy
+                </Button>
+              </div>
             )}
           </div>
           <div
@@ -502,9 +479,11 @@ export default function BlueprintSession({ userContext, idea, prd, modelChoice, 
                       <span className="font-mono text-xs font-semibold">{section.label}</span>
                     </div>
                     {content ? (
-                      <div className="max-h-[250px] overflow-y-auto">
-                        {renderSectionContent(content, section.isTable)}
-                      </div>
+                      <BlueprintSectionWithTldr
+                        content={content}
+                        isTable={section.isTable}
+                        renderBody={renderSectionContent}
+                      />
                     ) : (
                       <div className="text-xs text-zinc-600 italic">
                         {isBuilding ? 'Architecting...' : 'No data'}
@@ -525,76 +504,6 @@ export default function BlueprintSession({ userContext, idea, prd, modelChoice, 
         </Card>
       </div>
 
-      {/* Quick Stats & Export */}
-      {blueprintOutput && !isBuilding && (
-        <Card className="bg-zinc-900 border-zinc-800 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-                <Layers className="w-5 h-5 text-purple-400" />
-              </div>
-              <div>
-                <h3 className="font-mono text-lg text-zinc-100">Blueprint Summary</h3>
-                <p className="text-xs text-zinc-500">CTO's technical recommendations</p>
-              </div>
-            </div>
-          </div>
-
-          {(() => {
-            const overview = parseSection('TECHNICAL OVERVIEW');
-            const titleMatch = blueprintOutput.match(/^#\s+Technical Blueprint:\s*(.+)$/m);
-            const productName = titleMatch?.[1]?.trim().replace(/\*+/g, '').trim();
-            const architecture = overview.match(/Architecture Style:?\s*\*?\*?([^\n*]+)/i)?.[1]?.replace(/\*+/g, '').trim();
-            const complexity = overview.match(/Complexity Class:?\s*\*?\*?([^\n*]+)/i)?.[1]?.replace(/\*+/g, '').trim();
-            const buildTime = overview.match(/Build Time Estimate[^:\n]*:?\s*\*?\*?([^\n*]+)/i)?.[1]?.replace(/\*+/g, '').trim();
-
-            return (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">PRODUCT</div>
-                  <div className="text-base font-bold text-zinc-100 leading-tight">{productName || 'N/A'}</div>
-                </div>
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">ARCHITECTURE</div>
-                  <div className="text-base font-bold text-zinc-100 leading-tight">{architecture || 'N/A'}</div>
-                </div>
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">COMPLEXITY</div>
-                  <div className="text-base font-bold text-zinc-100 leading-tight">{complexity || 'N/A'}</div>
-                </div>
-                <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800">
-                  <div className="text-xs text-zinc-500 font-mono mb-1">BUILD TIME</div>
-                  <div className="text-base font-bold text-zinc-100 leading-tight">{buildTime || 'N/A'}</div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Export Buttons */}
-          <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
-            <p className="text-sm text-zinc-500">Export your blueprint to share with your team</p>
-            <div className="flex gap-3">
-              <Button
-                onClick={exportToWord}
-                variant="outline"
-                className="font-mono border-zinc-700 hover:border-purple-500 hover:text-purple-400"
-              >
-                <FileDown className="w-4 h-4 mr-2" />
-                Export to Word
-              </Button>
-              <Button
-                onClick={exportToPdf}
-                variant="outline"
-                className="font-mono border-zinc-700 hover:border-red-500 hover:text-red-400"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export to PDF
-              </Button>
-            </div>
-          </div>
-        </Card>
-      )}
-
       {/* Error Display */}
       {error && (
         <Card className="bg-red-950/20 border-red-800/50 p-4">
@@ -603,6 +512,43 @@ export default function BlueprintSession({ userContext, idea, prd, modelChoice, 
             <span className="font-mono text-sm">{error}</span>
           </div>
         </Card>
+      )}
+    </div>
+  );
+}
+
+function BlueprintSectionWithTldr({
+  content,
+  isTable,
+  renderBody,
+}: {
+  content: string;
+  isTable: boolean | undefined;
+  renderBody: (body: string, isTable?: boolean) => React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { tldr, body } = extractTldr(content);
+  if (!tldr) {
+    return (
+      <div className="max-h-[250px] overflow-y-auto">
+        {renderBody(content, isTable)}
+      </div>
+    );
+  }
+  return (
+    <div onClick={() => body && setExpanded((v) => !v)} className={body ? 'cursor-pointer' : ''}>
+      <p className="text-sm text-zinc-100 leading-relaxed font-medium mb-1">{tldr}</p>
+      {body && (
+        <>
+          {expanded && (
+            <div className="mt-2 max-h-[350px] overflow-y-auto">
+              {renderBody(body, isTable)}
+            </div>
+          )}
+          <span className="mt-1 text-[11px] font-mono text-zinc-500">
+            {expanded ? '− Hide detail' : '+ Show detail'}
+          </span>
+        </>
       )}
     </div>
   );

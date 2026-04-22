@@ -1,33 +1,67 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
 import { streamToText } from '@/lib/streaming';
-import { Package, Play, Square, Download, FileDown, Trophy, FileText } from 'lucide-react';
-import type { IdeaResult } from '@/lib/types';
+import { renderMarkdownBlock } from '@/lib/markdown-render';
+import { Package, Play, Square, Download, FileDown, Trophy, FileText, ChevronRight, Clock, ArrowLeft, Trash2 } from 'lucide-react';
+import type { IdeaResult, SynthesisEntry } from '@/lib/types';
+import { reconstructVcMemo } from '@/lib/prompt-builders';
 import { marked } from 'marked';
+import { usePhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, clearPhaseRun, getPhaseRun } from '@/lib/phase-status';
 
 function survivorsToMarkdown(survivors: IdeaResult[]): string {
   return survivors
     .map((s, i) => {
       const verdict = s.verdict ? ` — ${s.verdict}` : '';
-      return `## Survivor ${i + 1}: ${s.title}${verdict}\n\n${s.rawMarkdown}`;
+      const ideaBlock = `## Survivor ${i + 1}: ${s.title}${verdict}\n\n${s.rawMarkdown}`;
+      const memo = reconstructVcMemo(s);
+      return `${ideaBlock}\n\n### VC Partner Assessment\n\n${memo}`;
     })
     .join('\n\n---\n\n');
 }
 
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 export default function SynthesizePage() {
   const { session, update, ready } = useSession();
-  const [output, setOutput] = useState(session.synthesis ?? '');
-  const [mode, setMode] = useState<'build_packet' | 'investor_brief'>('build_packet');
-  const [selectedId, setSelectedId] = useState<string>(session.survivors[0]?.id ?? '');
-  const [isRunning, setIsRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const phaseRun = usePhaseRun('synthesize');
+  const [mode, setMode] = useState<'build_packet' | 'investor_brief'>(() => {
+    const run = getPhaseRun('synthesize');
+    return (run?.isRunning && run.extra?.mode) === 'investor_brief' ? 'investor_brief' : 'build_packet';
+  });
+  const [selectedId, setSelectedId] = useState<string>(() => {
+    const run = getPhaseRun('synthesize');
+    return run?.isRunning ? run.ideaId : (session.survivors[0]?.id ?? '');
+  });
+  const [viewingEntryId, setViewingEntryId] = useState<string | null>(null);
+
+  const isRunning = phaseRun?.isRunning ?? false;
+  const output = phaseRun ? phaseRun.output : '';
+  const error = phaseRun?.error ?? null;
+
+  useEffect(() => {
+    if (!ready) return;
+    const run = getPhaseRun('synthesize');
+    if (run?.isRunning) {
+      setSelectedId(run.ideaId);
+      if (run.extra?.mode) setMode(run.extra.mode as 'build_packet' | 'investor_brief');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  useEffect(() => {
+    return () => {
+      const run = getPhaseRun('synthesize');
+      if (run && !run.isRunning) clearPhaseRun('synthesize');
+    };
+  }, []);
 
   if (!ready) return null;
 
@@ -36,12 +70,37 @@ export default function SynthesizePage() {
   const prd = selected ? session.prds[selected.id] : undefined;
   const blueprint = selected ? session.blueprints[selected.id] : undefined;
 
+  const survivorIds = new Set(session.survivors.map((s) => s.id));
+  const currentVerified = Object.keys(session.verifications).filter((id) => survivorIds.has(id)).length;
+  const currentPrds = Object.keys(session.prds).filter((id) => survivorIds.has(id)).length;
+  const currentBlueprints = Object.keys(session.blueprints).filter((id) => survivorIds.has(id)).length;
+
+  const viewingEntry = viewingEntryId ? session.syntheses.find((e) => e.id === viewingEntryId) : null;
+  const displayOutput = viewingEntry ? viewingEntry.content : output;
+
+  const openEntry = (entry: SynthesisEntry) => {
+    setViewingEntryId(entry.id);
+  };
+
+  const closeEntry = () => {
+    setViewingEntryId(null);
+  };
+
+  const deleteEntry = (entryId: string) => {
+    update((prev) => ({
+      syntheses: prev.syntheses.filter((e) => e.id !== entryId),
+    }));
+    if (viewingEntryId === entryId) closeEntry();
+  };
+
   const run = async () => {
-    if (session.survivors.length === 0) return;
-    setIsRunning(true);
-    setError(null);
-    setOutput('');
-    abortRef.current = new AbortController();
+    if (session.survivors.length === 0 || !selected) return;
+    setViewingEntryId(null);
+    const ac = new AbortController();
+    const capturedId = selectedId;
+    const capturedMode = mode;
+    const capturedTitle = selected.title;
+    const runId = startPhaseRun('synthesize', capturedId, ac, { mode: capturedMode });
     try {
       const res = await fetch('/api/mining/synthesize', {
         method: 'POST',
@@ -52,30 +111,42 @@ export default function SynthesizePage() {
           marketResearch,
           prd,
           blueprint,
-          mode,
+          mode: capturedMode,
           modelChoice: session.modelChoice,
         }),
-        signal: abortRef.current.signal,
+        signal: ac.signal,
       });
       if (!res.ok) throw new Error(`synthesizer failed (${res.status})`);
-      const full = await streamToText(res, setOutput);
-      update({ synthesis: full });
+      const full = await streamToText(res, (text) => updatePhaseOutput('synthesize', runId, text));
+      completePhaseRun('synthesize', runId);
+      const entry: SynthesisEntry = {
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        ideaId: capturedId,
+        ideaTitle: capturedTitle,
+        mode: capturedMode,
+        content: full,
+      };
+      update((prev) => ({
+        synthesis: full,
+        syntheses: [entry, ...prev.syntheses],
+      }));
+      setViewingEntryId(entry.id);
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') setError('Stopped');
-      else setError(err instanceof Error ? err.message : 'Synthesis failed');
-    } finally {
-      setIsRunning(false);
+      if (err instanceof Error && err.name === 'AbortError') failPhaseRun('synthesize', runId, 'Stopped');
+      else failPhaseRun('synthesize', runId, err instanceof Error ? err.message : 'Synthesis failed');
     }
   };
 
-  const stop = () => abortRef.current?.abort();
+  const stop = () => stopPhaseRun('synthesize');
 
   const downloadMarkdown = () => {
-    const blob = new Blob([output], { type: 'text/markdown' });
+    const blob = new Blob([displayOutput], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${mode}-${Date.now()}.md`;
+    const prefix = viewingEntry ? viewingEntry.mode : mode;
+    a.download = `${prefix}-${Date.now()}.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -83,8 +154,8 @@ export default function SynthesizePage() {
   };
 
   const downloadWord = async () => {
-    const bodyHtml = await marked.parse(output, { async: true });
-    const title = mode === 'investor_brief' ? 'Investor Brief' : 'Build Packet';
+    const bodyHtml = await marked.parse(displayOutput, { async: true });
+    const title = (viewingEntry?.mode ?? mode) === 'investor_brief' ? 'Investor Brief' : 'Build Packet';
     const fullHtml = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office"
       xmlns:w="urn:schemas-microsoft-com:office:word"
@@ -120,12 +191,14 @@ ${bodyHtml}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${mode}-${Date.now()}.doc`;
+    a.download = `${viewingEntry?.mode ?? mode}-${Date.now()}.doc`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  const showOutput = displayOutput || isRunning;
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col">
@@ -133,6 +206,7 @@ ${bodyHtml}
 
       <main className="flex-1 p-6">
         <div className="max-w-5xl mx-auto space-y-6">
+          {/* Controls Card */}
           <Card className="bg-zinc-900 border-zinc-800 p-6">
             <div className="flex items-start gap-4 mb-4">
               <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
@@ -198,64 +272,161 @@ ${bodyHtml}
             </div>
 
             <div className="flex gap-2 text-xs font-mono flex-wrap">
-              <Badge label={`${session.survivors.length} survivors`} active={session.survivors.length > 0} />
-              <Badge label={`${Object.keys(session.verifications).length} verified`} active={Object.keys(session.verifications).length > 0} />
-              <Badge label={`${Object.keys(session.prds).length} PRDs`} active={Object.keys(session.prds).length > 0} />
-              <Badge label={`${Object.keys(session.blueprints).length} blueprints`} active={Object.keys(session.blueprints).length > 0} />
+              <StatusBadge label={`${session.survivors.length} survivors`} active={session.survivors.length > 0} />
+              <StatusBadge label={`${currentVerified} verified`} active={currentVerified > 0} />
+              <StatusBadge label={`${currentPrds} PRDs`} active={currentPrds > 0} />
+              <StatusBadge label={`${currentBlueprints} blueprints`} active={currentBlueprints > 0} />
             </div>
 
             {error && <p className="text-xs text-red-400 font-mono mt-3">{error}</p>}
           </Card>
 
-          <Card className="bg-zinc-900 border-zinc-800 p-6">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Trophy className="w-4 h-4 text-emerald-400" />
-                <h3 className="font-mono text-sm text-zinc-200">Synthesis Output</h3>
+          {/* Output Card */}
+          {showOutput && (
+            <Card className="bg-zinc-900 border-zinc-800 p-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  {viewingEntry && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={closeEntry}
+                      className="text-zinc-400 hover:text-zinc-200 -ml-2 mr-1"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                    </Button>
+                  )}
+                  <Trophy className="w-4 h-4 text-emerald-400" />
+                  <h3 className="font-mono text-sm text-zinc-200">
+                    {viewingEntry
+                      ? `${viewingEntry.mode === 'investor_brief' ? 'Investor Brief' : 'Build Packet'} — ${viewingEntry.ideaTitle}`
+                      : 'Synthesis Output'}
+                  </h3>
+                  {viewingEntry && (
+                    <span className="text-[10px] font-mono text-zinc-500 ml-2">
+                      {formatDate(viewingEntry.createdAt)}
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!displayOutput}
+                    onClick={downloadMarkdown}
+                    className="font-mono border-zinc-700 text-zinc-300"
+                  >
+                    <FileDown className="w-4 h-4 mr-1" />
+                    .md
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!displayOutput}
+                    onClick={downloadWord}
+                    className="font-mono border-zinc-700 text-zinc-300"
+                  >
+                    <FileText className="w-4 h-4 mr-1" />
+                    Word
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!displayOutput}
+                    onClick={() => navigator.clipboard.writeText(displayOutput)}
+                    className="font-mono border-zinc-700 text-zinc-300"
+                  >
+                    <Download className="w-4 h-4 mr-1" />
+                    Copy
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!output}
-                  onClick={downloadMarkdown}
-                  className="font-mono border-zinc-700 text-zinc-300"
-                >
-                  <FileDown className="w-4 h-4 mr-1" />
-                  .md
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!output}
-                  onClick={downloadWord}
-                  className="font-mono border-zinc-700 text-zinc-300"
-                >
-                  <FileText className="w-4 h-4 mr-1" />
-                  Word
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!output}
-                  onClick={() => navigator.clipboard.writeText(output)}
-                  className="font-mono border-zinc-700 text-zinc-300"
-                >
-                  <Download className="w-4 h-4 mr-1" />
-                  Copy
-                </Button>
+              <div className="bg-zinc-950 rounded-lg p-5 border border-zinc-800 min-h-[400px] max-h-[700px] overflow-y-auto">
+                {displayOutput ? (
+                  renderMarkdownBlock(displayOutput)
+                ) : (
+                  <span className="text-xs text-zinc-600 font-mono">Synthesizing...</span>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {/* Previous Syntheses */}
+          {session.syntheses.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Clock className="w-4 h-4 text-zinc-500" />
+                <h3 className="font-mono text-sm text-zinc-400">Previous Syntheses</h3>
+                <span className="text-[10px] font-mono text-zinc-600">{session.syntheses.length}</span>
+              </div>
+              <div className="space-y-2">
+                {session.syntheses.map((entry) => {
+                  const isActive = viewingEntryId === entry.id;
+                  return (
+                    <Card
+                      key={entry.id}
+                      onClick={() => openEntry(entry)}
+                      className={`p-4 cursor-pointer transition-all hover:scale-[1.005] ${
+                        isActive
+                          ? 'bg-emerald-900/20 border-emerald-700/50'
+                          : 'bg-zinc-900 border-zinc-800 hover:border-zinc-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            entry.mode === 'investor_brief' ? 'bg-purple-500/10' : 'bg-emerald-500/10'
+                          }`}>
+                            {entry.mode === 'investor_brief' ? (
+                              <FileText className={`w-4 h-4 ${isActive ? 'text-purple-300' : 'text-purple-400'}`} />
+                            ) : (
+                              <Package className={`w-4 h-4 ${isActive ? 'text-emerald-300' : 'text-emerald-400'}`} />
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm text-zinc-100">{entry.ideaTitle}</span>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                                entry.mode === 'investor_brief'
+                                  ? 'bg-purple-500/20 text-purple-300'
+                                  : 'bg-emerald-500/20 text-emerald-300'
+                              }`}>
+                                {entry.mode === 'investor_brief' ? 'Investor Brief' : 'Build Packet'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-zinc-500 mt-0.5">{formatDate(entry.createdAt)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteEntry(entry.id);
+                            }}
+                            className="text-zinc-600 hover:text-red-400 h-8 w-8 p-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <ChevronRight className="w-4 h-4 text-zinc-500" />
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
             </div>
-            <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800 min-h-[400px] max-h-[700px] overflow-y-auto">
-              {output ? (
-                <pre className="text-xs text-zinc-300 font-mono whitespace-pre-wrap">{output}</pre>
-              ) : (
-                <span className="text-xs text-zinc-600 font-mono">
-                  {isRunning ? 'Synthesizing...' : 'Click SYNTHESIZE to produce the packaged output.'}
-                </span>
-              )}
-            </div>
-          </Card>
+          )}
+
+          {/* Empty state — no output and no previous */}
+          {!showOutput && session.syntheses.length === 0 && (
+            <Card className="bg-zinc-900 border-zinc-800 border-dashed p-8 text-center">
+              <p className="text-sm text-zinc-400">
+                No syntheses yet. Select a survivor and click <span className="text-emerald-300">SYNTHESIZE</span> to generate your first one.
+              </p>
+            </Card>
+          )}
         </div>
       </main>
 
@@ -269,7 +440,7 @@ ${bodyHtml}
   );
 }
 
-function Badge({ label, active }: { label: string; active: boolean }) {
+function StatusBadge({ label, active }: { label: string; active: boolean }) {
   return (
     <span
       className={`px-2 py-1 rounded border ${

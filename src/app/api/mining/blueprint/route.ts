@@ -6,9 +6,11 @@ import type { ModelChoice } from "@/lib/types";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userContext, idea, prd, modelChoice } = (await req.json()) as {
+  const { userContext, idea, vcMemo, marketResearch, prd, modelChoice } = (await req.json()) as {
     userContext?: string;
     idea?: string;
+    vcMemo?: string;
+    marketResearch?: string;
     prd?: string;
     modelChoice?: ModelChoice;
   };
@@ -23,7 +25,7 @@ export async function POST(req: Request) {
   return streamSkill({
     skill: "cto",
     model: modelChoice ?? DEFAULT_MODEL,
-    userMessage: buildBlueprintPrompt({ userContext, ideaMarkdown: idea, prd }),
+    userMessage: buildBlueprintPrompt({ userContext, ideaMarkdown: idea, vcMemo, marketResearch, prd }),
     temperature: 0.5,
   });
 }

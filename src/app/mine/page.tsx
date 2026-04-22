@@ -12,8 +12,17 @@ import type { IdeaResult } from "@/lib/types";
 export default function MinePage() {
   const { session, update, ready } = useSession();
 
-  const handleComplete = (survivors: IdeaResult[], allIdeas: IdeaResult[]) => {
-    update({ survivors, allIdeas });
+  const handleComplete = (newSurvivors: IdeaResult[], runIdeas: IdeaResult[]) => {
+    update((prev) => {
+      const idMap = new Map(prev.allIdeas.map((i) => [i.id, i]));
+      for (const idea of runIdeas) {
+        idMap.set(idea.id, idea);
+      }
+      return {
+        survivors: newSurvivors,
+        allIdeas: Array.from(idMap.values()),
+      };
+    });
   };
 
   const handleDiscard = (idea: IdeaResult) => {
@@ -32,6 +41,23 @@ export default function MinePage() {
         : prev.survivors,
       allIdeas: [...prev.allIdeas, idea],
     }));
+  };
+
+  const handleDeletePermanently = (idea: IdeaResult) => {
+    update((prev) => {
+      const rest = { ...prev.verifications };
+      delete rest[idea.id];
+      const prds = { ...prev.prds };
+      delete prds[idea.id];
+      const blueprints = { ...prev.blueprints };
+      delete blueprints[idea.id];
+      return {
+        discardedIdeas: prev.discardedIdeas.filter((d) => d.id !== idea.id),
+        verifications: rest,
+        prds,
+        blueprints,
+      };
+    });
   };
 
   if (!ready) return null;
@@ -67,30 +93,13 @@ export default function MinePage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Compact context reference */}
-            <div className="max-w-6xl mx-auto">
-              <div className="flex items-center justify-between px-4 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Terminal className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span className="text-zinc-400 shrink-0">Context:</span>
-                  <span className="text-zinc-500 truncate">
-                    {session.founderContext.replace(/[#*`]/g, '').split('\n').filter(Boolean)[0]?.substring(0, 140) ?? ''}
-                  </span>
-                </div>
-                <Link href="/intake">
-                  <Button variant="ghost" size="sm" className="text-zinc-400 hover:text-zinc-100 font-mono text-xs shrink-0">
-                    Edit in Intake
-                  </Button>
-                </Link>
-              </div>
-            </div>
-
             <WarRoom
               userContext={session.founderContext}
               modelChoice={session.modelChoice}
               onComplete={handleComplete}
               onDiscard={handleDiscard}
               onRestore={handleRestore}
+              onDeletePermanently={handleDeletePermanently}
               initialSurvivors={session.survivors.length > 0 ? session.survivors : undefined}
               initialAllIdeas={session.allIdeas.length > 0 ? session.allIdeas : undefined}
               discardedIdeas={session.discardedIdeas}
