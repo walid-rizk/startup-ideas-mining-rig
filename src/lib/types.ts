@@ -29,7 +29,7 @@ export interface Skill {
 }
 
 // ─── Models / Providers ──────────────────────────────────────────────
-export type Provider = "anthropic" | "gemini";
+export type Provider = "anthropic" | "gemini" | "openai";
 
 export interface ModelChoice {
   provider: Provider;
@@ -44,8 +44,13 @@ export const DEFAULT_MODEL: ModelChoice = {
 export const MODEL_OPTIONS: Array<ModelChoice & { label: string }> = [
   { provider: "gemini", model: "gemini-2.5-flash", label: "Gemini 2.5 Flash (free tier)" },
   { provider: "gemini", model: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { provider: "gemini", model: "gemini-3.0-flash", label: "Gemini 3.0 Flash" },
+  { provider: "gemini", model: "gemini-3.1-flash", label: "Gemini 3.1 Flash" },
   { provider: "anthropic", model: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5" },
   { provider: "anthropic", model: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
+  { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6" },
+  { provider: "anthropic", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
+  { provider: "openai", model: "gpt-5.4", label: "GPT 5.4" },
 ];
 
 // ─── Verdicts ────────────────────────────────────────────────────────

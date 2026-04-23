@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Startup Idea Mining Rig
 
-## Getting Started
+A Next.js app that autonomously identifies, validates, and specs startup ideas tailored to a specific founder's profile. Move through a guided pipeline — **Intake, Mine, Verify, Shape, Architect, Synthesize** — each phase invoking a domain-expert LLM skill.
 
-First, run the development server:
+## Quick Start
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/walid-rizk/startup-ideas-mining-rig.git
+cd startup-ideas-mining-rig
+npm install
+```
+
+### 2. Add your API keys
+
+Copy the example env file and add the key(s) for the provider you want to use. You only need the key(s) for the models you plan to select in the app — you don't need all three.
+
+```bash
+cp .env.example .env.local
+```
+
+Then open `.env.local` and fill in your key(s):
+
+| Provider | Env Variable | Models | Get a Key |
+|----------|-------------|--------|-----------|
+| Google | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini 2.5 Flash, 2.5 Pro, 3.0 Flash, 3.1 Flash | [Google AI Studio](https://aistudio.google.com/apikey) |
+| Anthropic | `ANTHROPIC_API_KEY` | Claude Sonnet 4.5, Haiku 4.5, Opus 4.6, Opus 4.7 | [Anthropic Console](https://console.anthropic.com/settings/keys) |
+| OpenAI | `OPENAI_API_KEY` | GPT 5.4 | [OpenAI Platform](https://platform.openai.com/api-keys) |
+
+Your keys are stored locally in `.env.local`, which is gitignored and never leaves your machine.
+
+### 3. Run the app
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). Select your preferred model from the toolbar dropdown, then start with Intake.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How It Works
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Phase | What Happens |
+|-------|-------------|
+| **Intake** | Conversational interview extracts your founder profile, then distills it into a structured Founder Thesis |
+| **Mine** | The Futurist generates 3 startup ideas per batch; the VC Partner writes investment memos and filters survivors |
+| **Verify** | The Data Miner researches market size, competitors, and customer evidence for each survivor |
+| **Shape** | The Product Manager produces a lean PRD with user journey, metrics, and launch checklist |
+| **Architect** | The CTO creates a technical blueprint — stack, data model, API design, implementation phases |
+| **Synthesize** | Rolls up all artifacts into an investor brief or build packet |
 
-## Learn More
+All session data is stored in your browser's localStorage. Use the toolbar to export/import sessions as JSON.
 
-To learn more about Next.js, take a look at the following resources:
+## Stack
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Framework:** Next.js (App Router), React, TypeScript
+- **LLM:** Vercel AI SDK with Anthropic, Google, and OpenAI providers
+- **UI:** Tailwind CSS, shadcn/ui, Framer Motion
+- **Persistence:** Browser localStorage (no backend database)

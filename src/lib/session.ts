@@ -44,7 +44,7 @@ const ideaResultSchema: z.ZodType<IdeaResult> = z.object({
 });
 
 const modelChoiceSchema: z.ZodType<ModelChoice> = z.object({
-  provider: z.enum(["anthropic", "gemini"]),
+  provider: z.enum(["anthropic", "gemini", "openai"]),
   model: z.string(),
 });
 

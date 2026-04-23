@@ -2,6 +2,7 @@ import "server-only";
 import { streamText, type CoreMessage } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
+import { openai } from "@ai-sdk/openai";
 import { loadSkill } from "./skills";
 import type { ModelChoice, SkillName } from "./types";
 
@@ -24,6 +25,14 @@ function resolveModel(choice: ModelChoice) {
     }
     const modelOpts: Record<string, unknown> = {};
     return google(choice.model, modelOpts);
+  }
+  if (choice.provider === "openai") {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new ProviderConfigError(
+        "OPENAI_API_KEY is not set. Add it to .env.local or choose another provider.",
+      );
+    }
+    return openai(choice.model);
   }
   throw new ProviderConfigError(`Unknown provider: ${(choice as ModelChoice).provider}`);
 }
