@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from 'react';
 
-export type PhaseType = 'verify' | 'shape' | 'blueprint' | 'synthesize';
+export type PhaseType = 'verify' | 'stress-test' | 'shape' | 'blueprint' | 'synthesize';
 
 export interface PhaseRun {
   runId: string;
@@ -15,6 +15,7 @@ export interface PhaseRun {
 
 const runs: Record<PhaseType, PhaseRun | null> = {
   verify: null,
+  'stress-test': null,
   shape: null,
   blueprint: null,
   synthesize: null,
@@ -22,6 +23,7 @@ const runs: Record<PhaseType, PhaseRun | null> = {
 
 const aborts: Record<PhaseType, AbortController | null> = {
   verify: null,
+  'stress-test': null,
   shape: null,
   blueprint: null,
   synthesize: null,

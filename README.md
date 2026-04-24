@@ -26,7 +26,7 @@ Then open `.env.local` and fill in your key(s):
 |----------|-------------|--------|-----------|
 | Google | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini 2.5 Flash, 2.5 Pro, 3.0 Flash, 3.1 Flash | [Google AI Studio](https://aistudio.google.com/apikey) |
 | Anthropic | `ANTHROPIC_API_KEY` | Claude Sonnet 4.5, Haiku 4.5, Opus 4.6, Opus 4.7 | [Anthropic Console](https://console.anthropic.com/settings/keys) |
-| OpenAI | `OPENAI_API_KEY` | GPT 5.4 | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| OpenAI | `OPENAI_API_KEY` | GPT 5.4, 5.5 | [OpenAI Platform](https://platform.openai.com/api-keys) |
 
 Your keys are stored locally in `.env.local`, which is gitignored and never leaves your machine.
 

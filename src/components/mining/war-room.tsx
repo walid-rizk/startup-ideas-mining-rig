@@ -65,9 +65,13 @@ interface IdeaResult {
   verdictRationale?: string;
   moatRationale?: string;
   founderFitRationale?: string;
+  marketTimingRationale?: string;
+  distributionEdgeRationale?: string;
   scores?: {
     moat: number;
     founderFit: number;
+    marketTiming: number;
+    distributionEdge: number;
   };
 }
 
@@ -106,9 +110,13 @@ function fromPublicIdeas(ideas: PublicIdeaResult[]): IdeaResult[] {
       verdictRationale: idea.verdictRationale,
       moatRationale: idea.moatRationale,
       founderFitRationale: idea.founderFitRationale,
+      marketTimingRationale: idea.marketTimingRationale,
+      distributionEdgeRationale: idea.distributionEdgeRationale,
       scores: {
         moat: idea.moatScore ?? 0,
         founderFit: idea.founderFitScore ?? 0,
+        marketTiming: idea.marketTimingScore ?? 0,
+        distributionEdge: idea.distributionEdgeScore ?? 0,
       },
     };
   });
@@ -124,8 +132,12 @@ function toPublicIdeas(ideas: IdeaResult[]): PublicIdeaResult[] {
     pinned: idea.pinned ?? false,
     moatScore: idea.scores?.moat,
     founderFitScore: idea.scores?.founderFit,
+    marketTimingScore: idea.scores?.marketTiming,
+    distributionEdgeScore: idea.scores?.distributionEdge,
     moatRationale: idea.moatRationale,
     founderFitRationale: idea.founderFitRationale,
+    marketTimingRationale: idea.marketTimingRationale,
+    distributionEdgeRationale: idea.distributionEdgeRationale,
     oneLiner: idea.oneLiner,
     bullCase: idea.bullCase,
     bearCase: idea.bearCase,
@@ -349,18 +361,22 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       }
 
       // Parse scores
-      const moatMatch = section.match(/\*\*Moat Score[^*]*\*\*:?\s*(\d+)/i)
-        || section.match(/Moat Score[^:\n]*:?\s*(\d+)/i);
-      const fitMatch = section.match(/\*\*Founder Fit Score[^*]*\*\*:?\s*(\d+)/i)
-        || section.match(/Founder Fit Score[^:\n]*:?\s*(\d+)/i);
+      const parseScore = (label: string): number => {
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = section.match(new RegExp(`\\*\\*${escaped}[^*]*\\*\\*:?\\s*(\\d+)`, 'i'))
+          || section.match(new RegExp(`${escaped}[^:\\n]*:?\\s*(\\d+)`, 'i'));
+        return m ? parseInt(m[1]) : 0;
+      };
+      const moatVal = parseScore('Moat Score');
+      const fitVal = parseScore('Founder Fit Score');
+      const timingVal = parseScore('Market Timing Score');
+      const distVal = parseScore('Distribution Edge Score');
 
-      // Extract score justifications (the " — [one-sentence]" trailing text)
       const parseScoreRationale = (scoreLabel: string): string => {
         const escaped = scoreLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const line = section.match(
           new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+[^\\n]*`, 'i'),
         )?.[0] ?? '';
-        // Strip "**Label:** 8/10" prefix, leaving just the rationale text after "—" or "-" or ":"
         const r = line
           .replace(new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+(?:/10)?`, 'i'), '')
           .replace(/^\s*[—–\-:]\s*/, '')
@@ -369,6 +385,8 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       };
       const moatRationale = parseScoreRationale('Moat Score');
       const founderFitRationale = parseScoreRationale('Founder Fit Score');
+      const marketTimingRationale = parseScoreRationale('Market Timing Score');
+      const distributionEdgeRationale = parseScoreRationale('Distribution Edge Score');
 
       // Extract bullet list fields (Key Risks) — capture until next **Field:** or ##
       const extractBulletList = (fieldName: string): string => {
@@ -418,9 +436,13 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         verdictRationale,
         moatRationale,
         founderFitRationale,
+        marketTimingRationale,
+        distributionEdgeRationale,
         scores: {
-          moat: moatMatch ? parseInt(moatMatch[1]) : 0,
-          founderFit: fitMatch ? parseInt(fitMatch[1]) : 0,
+          moat: moatVal,
+          founderFit: fitVal,
+          marketTiming: timingVal,
+          distributionEdge: distVal,
         },
       };
     });
@@ -858,9 +880,11 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                           </span>
                         </div>
                         {idea.scores && (idea.scores.moat > 0 || idea.scores.founderFit > 0) && (
-                          <div className="flex gap-2 mt-1.5">
+                          <div className="flex flex-wrap gap-1.5 mt-1.5">
                             <ScoreChip label="Moat" score={idea.scores.moat} />
                             <ScoreChip label="Fit" score={idea.scores.founderFit} />
+                            {idea.scores.marketTiming > 0 && <ScoreChip label="Timing" score={idea.scores.marketTiming} />}
+                            {idea.scores.distributionEdge > 0 && <ScoreChip label="Distro" score={idea.scores.distributionEdge} />}
                           </div>
                         )}
                         {idea.oneLiner && (
@@ -1077,19 +1101,35 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
 
                 {/* Scores in header */}
                 {selectedIdea.scores && (selectedIdea.scores.moat > 0 || selectedIdea.scores.founderFit > 0) && (
-                  <div className="flex gap-3 shrink-0">
-                    <div className="bg-zinc-800 rounded-lg px-4 py-2 text-center border border-zinc-700">
-                      <div className="text-xs text-zinc-500 font-mono">MOAT</div>
-                      <div className="text-xl font-bold text-zinc-100 leading-tight">
-                        {selectedIdea.scores.moat}<span className="text-zinc-500 text-xs">/10</span>
+                  <div className="flex gap-2 shrink-0">
+                    <div className="bg-zinc-800 rounded-lg px-3 py-2 text-center border border-zinc-700">
+                      <div className="text-[10px] text-zinc-500 font-mono">MOAT</div>
+                      <div className="text-lg font-bold text-zinc-100 leading-tight">
+                        {selectedIdea.scores.moat}<span className="text-zinc-500 text-[10px]">/10</span>
                       </div>
                     </div>
-                    <div className="bg-zinc-800 rounded-lg px-4 py-2 text-center border border-zinc-700">
-                      <div className="text-xs text-zinc-500 font-mono">FIT</div>
-                      <div className="text-xl font-bold text-zinc-100 leading-tight">
-                        {selectedIdea.scores.founderFit}<span className="text-zinc-500 text-xs">/10</span>
+                    <div className="bg-zinc-800 rounded-lg px-3 py-2 text-center border border-zinc-700">
+                      <div className="text-[10px] text-zinc-500 font-mono">FIT</div>
+                      <div className="text-lg font-bold text-zinc-100 leading-tight">
+                        {selectedIdea.scores.founderFit}<span className="text-zinc-500 text-[10px]">/10</span>
                       </div>
                     </div>
+                    {(selectedIdea.scores.marketTiming ?? 0) > 0 && (
+                      <div className="bg-zinc-800 rounded-lg px-3 py-2 text-center border border-zinc-700">
+                        <div className="text-[10px] text-zinc-500 font-mono">TIMING</div>
+                        <div className="text-lg font-bold text-zinc-100 leading-tight">
+                          {selectedIdea.scores.marketTiming}<span className="text-zinc-500 text-[10px]">/10</span>
+                        </div>
+                      </div>
+                    )}
+                    {(selectedIdea.scores.distributionEdge ?? 0) > 0 && (
+                      <div className="bg-zinc-800 rounded-lg px-3 py-2 text-center border border-zinc-700">
+                        <div className="text-[10px] text-zinc-500 font-mono">DISTRO</div>
+                        <div className="text-lg font-bold text-zinc-100 leading-tight">
+                          {selectedIdea.scores.distributionEdge}<span className="text-zinc-500 text-[10px]">/10</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1265,6 +1305,8 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                     const verdictRationale = extractField(memo, 'Verdict Rationale');
                     const moatRationale = extractScoreRationale('Moat Score');
                     const founderFitRationale = extractScoreRationale('Founder Fit Score');
+                    const marketTimingRationale = extractScoreRationale('Market Timing Score');
+                    const distributionEdgeRationale = extractScoreRationale('Distribution Edge Score');
 
                     const cards: Array<{ key: string; label: string; icon: string; color: string; value: string; kind?: 'bullets' | 'quote' }> = [
                       { key: 'verdict', label: 'Verdict Rationale', icon: '⚖️', color: 'text-amber-400', value: verdictRationale },
@@ -1299,6 +1341,12 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                           <div className="grid grid-cols-2 gap-3 mb-1">
                             <ScoreTile label="Moat Score" score={s.scores?.moat ?? 0} rationale={moatRationale} icon="🛡️" />
                             <ScoreTile label="Founder Fit" score={s.scores?.founderFit ?? 0} rationale={founderFitRationale} icon="🤝" />
+                            {(s.scores?.marketTiming ?? 0) > 0 && (
+                              <ScoreTile label="Market Timing" score={s.scores?.marketTiming ?? 0} rationale={marketTimingRationale} icon="⏱️" />
+                            )}
+                            {(s.scores?.distributionEdge ?? 0) > 0 && (
+                              <ScoreTile label="Distribution Edge" score={s.scores?.distributionEdge ?? 0} rationale={distributionEdgeRationale} icon="📡" />
+                            )}
                           </div>
                         ) : null}
                         {found.map((c) => (

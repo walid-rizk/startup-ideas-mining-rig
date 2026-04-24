@@ -10,6 +10,7 @@ export async function POST(req: Request) {
     userContext,
     survivorsMarkdown,
     marketResearch,
+    stressTest,
     prd,
     blueprint,
     mode = "build_packet",
@@ -18,6 +19,7 @@ export async function POST(req: Request) {
     userContext?: string;
     survivorsMarkdown?: string;
     marketResearch?: string;
+    stressTest?: string;
     prd?: string;
     blueprint?: string;
     mode?: "investor_brief" | "build_packet";
@@ -38,6 +40,7 @@ export async function POST(req: Request) {
       userContext,
       survivorsMarkdown,
       marketResearch,
+      stressTest,
       prd,
       blueprint,
       mode,

@@ -5,6 +5,7 @@ export type SkillName =
   | "futurist"
   | "vc-partner"
   | "data-miner"
+  | "stress-tester"
   | "product-manager"
   | "cto"
   | "synthesizer";
@@ -51,6 +52,7 @@ export const MODEL_OPTIONS: Array<ModelChoice & { label: string }> = [
   { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { provider: "anthropic", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
   { provider: "openai", model: "gpt-5.4", label: "GPT 5.4" },
+  { provider: "openai", model: "gpt-5.5", label: "GPT 5.5" },
 ];
 
 // ─── Verdicts ────────────────────────────────────────────────────────
@@ -66,8 +68,12 @@ export interface IdeaResult {
   pinned?: boolean;
   moatScore?: number;
   founderFitScore?: number;
+  marketTimingScore?: number;
+  distributionEdgeScore?: number;
   moatRationale?: string;
   founderFitRationale?: string;
+  marketTimingRationale?: string;
+  distributionEdgeRationale?: string;
   oneLiner?: string;
   bullCase?: string;
   bearCase?: string;
@@ -115,6 +121,7 @@ export interface Session {
   discardedIdeas: IdeaResult[];
 
   verifications: Record<string, string>;
+  stressTests: Record<string, string>;
   prds: Record<string, string>;
   blueprints: Record<string, string>;
   synthesis: string | null;

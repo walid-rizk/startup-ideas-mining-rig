@@ -87,7 +87,7 @@ export function buildCritiquePrompt(opts: { userContext: string; ideasMarkdown: 
     `Produce one memo per idea using your Output Contract (\`## MEMO — IDEA [batch].[n]:\` headers). Every field in the contract is required — do not skip Comparable Companies, Market Sizing, Unit Economics First-Cut, Key Risks, or What Would Change My Mind.`,
     `Write as if this memo is being read by your investment committee — partners who will challenge vague claims. Take a position. No hedging.`,
     `Every memo must have a \`**Verdict:**\` line with exactly one of: STRONG_INVEST | INVEST | SOFT_PASS | STRONG_PASS.`,
-    `Include Moat Score (1-10) and Founder Fit Score (1-10) as integers with one-sentence justifications.`,
+    `Include all four scores as integers with one-sentence justifications: Moat Score (1-10), Founder Fit Score (1-10), Market Timing Score (1-10), and Distribution Edge Score (1-10).`,
     `Name at least 2 specific comparable companies by real name in each memo (with what happened to them — exit, flameout, still grinding). "Companies like this" or "similar SaaS tools" is banned.`,
     `Market Sizing must include concrete TAM/SAM/SOM numbers with basis (labeled proxies are fine; hand-waving is not).`,
     `Key Risks must be a bullet list of 3 distinct risks — regulatory, competitive (name names), technical, team, or timing.`,
@@ -96,12 +96,14 @@ export function buildCritiquePrompt(opts: { userContext: string; ideasMarkdown: 
   ].join("\n");
 }
 
-export function reconstructVcMemo(idea: Pick<IdeaResult, 'title' | 'verdict' | 'moatScore' | 'founderFitScore' | 'oneLiner' | 'bullCase' | 'bearCase' | 'comparableCompanies' | 'marketSizing' | 'unitEconomics' | 'hairOnFireCheck' | 'distributionPlan' | 'keyRisks' | 'whatWouldChangeMind' | 'verdictRationale'>): string {
+export function reconstructVcMemo(idea: Pick<IdeaResult, 'title' | 'verdict' | 'moatScore' | 'founderFitScore' | 'marketTimingScore' | 'distributionEdgeScore' | 'oneLiner' | 'bullCase' | 'bearCase' | 'comparableCompanies' | 'marketSizing' | 'unitEconomics' | 'hairOnFireCheck' | 'distributionPlan' | 'keyRisks' | 'whatWouldChangeMind' | 'verdictRationale'>): string {
   const lines: string[] = [`## VC Partner Memo: ${idea.title}`];
   if (idea.oneLiner) lines.push(`**One-Liner:** ${idea.oneLiner}`);
   if (idea.verdict) lines.push(`**Verdict:** ${idea.verdict}`);
   if (idea.moatScore != null) lines.push(`**Moat Score:** ${idea.moatScore}/10`);
   if (idea.founderFitScore != null) lines.push(`**Founder Fit Score:** ${idea.founderFitScore}/10`);
+  if (idea.marketTimingScore != null) lines.push(`**Market Timing Score:** ${idea.marketTimingScore}/10`);
+  if (idea.distributionEdgeScore != null) lines.push(`**Distribution Edge Score:** ${idea.distributionEdgeScore}/10`);
   if (idea.bullCase) lines.push(`**Bull Case:**\n${idea.bullCase}`);
   if (idea.bearCase) lines.push(`**Bear Case:**\n${idea.bearCase}`);
   if (idea.comparableCompanies) lines.push(`**Comparable Companies:**\n${idea.comparableCompanies}`);
@@ -128,6 +130,23 @@ export function buildVerifyPrompt(opts: {
     `Produce a Market Research report per your Output Contract. Use web search for competitor and market size claims. Cite sources with dates. Label proxy reasoning explicitly.`,
     `Market size numbers and competitor status must be current as of today's date. Prefer sources dated within the last 18 months; flag any older figure as a proxy.`,
     `The Timing Verdict must be exactly one of: TOO_EARLY | JUST_RIGHT | SATURATED | TAR_PIT.`,
+  ].join("\n");
+}
+
+export function buildStressTestPrompt(opts: {
+  userContext: string;
+  ideaMarkdown: string;
+  vcMemo?: string | null;
+  marketResearch?: string | null;
+}): string {
+  return [
+    temporalAnchor(),
+    section("Founder Context", opts.userContext),
+    section("Idea Under Test", opts.ideaMarkdown),
+    sectionOrMarker("VC Partner Memo", opts.vcMemo, "No VC partner memo available for this idea."),
+    sectionOrMarker("Market Research (Data Miner Report)", opts.marketResearch, "No data-miner report available for this idea."),
+    `Produce a Stress Test per your Output Contract. Be ruthless — your job is to find the strongest reasons this fails, not to be balanced.`,
+    `If market research is available, use it to sharpen your attacks — don't repeat generic risks the VC already covered.`,
   ].join("\n");
 }
 
@@ -178,6 +197,7 @@ export function buildSynthesizePrompt(opts: {
   userContext: string;
   survivorsMarkdown: string;
   marketResearch?: string | null;
+  stressTest?: string | null;
   prd?: string | null;
   blueprint?: string | null;
   mode: "investor_brief" | "build_packet";
@@ -187,6 +207,7 @@ export function buildSynthesizePrompt(opts: {
     section("Founder Context", opts.userContext),
     section("Survivor Ideas (with verdicts)", opts.survivorsMarkdown),
     sectionOrMarker("Market Research (Data Miner Report)", opts.marketResearch, "Founder skipped verification — no data-miner report available."),
+    sectionOrMarker("Stress Test (Devil's Advocate)", opts.stressTest, "Founder skipped stress test — no adversarial analysis available."),
     sectionOrMarker("PRD (Product Manager)", opts.prd, "Founder skipped shaping — no PRD available."),
     sectionOrMarker("Technical Blueprint (CTO)", opts.blueprint, "Founder skipped blueprint — no technical plan available."),
     `Use the date from the Temporal Anchor above in the \`*Date:*\` line of your output — verbatim. Do NOT substitute a different date.`,

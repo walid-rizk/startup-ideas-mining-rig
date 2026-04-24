@@ -50,6 +50,7 @@ export async function loadAllSkills(): Promise<Skill[]> {
     "futurist",
     "vc-partner",
     "data-miner",
+    "stress-tester",
     "product-manager",
     "cto",
     "synthesizer",

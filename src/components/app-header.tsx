@@ -127,13 +127,14 @@ const PHASE_RUNNING_CLASSES: Partial<Record<PhaseKey, string>> = {
 export function AppHeader({ currentPhase }: { currentPhase?: PhaseKey }) {
   const { isRunning: isMining } = useMiningStatus();
   const verifyRun = usePhaseRun('verify');
+  const stressTestRun = usePhaseRun('stress-test');
   const shapeRun = usePhaseRun('shape');
   const blueprintRun = usePhaseRun('blueprint');
   const synthesizeRun = usePhaseRun('synthesize');
 
   const runningPhases = new Set<PhaseKey>();
   if (isMining) runningPhases.add('mine');
-  if (verifyRun?.isRunning) runningPhases.add('verify');
+  if (verifyRun?.isRunning || stressTestRun?.isRunning) runningPhases.add('verify');
   if (shapeRun?.isRunning) runningPhases.add('shape');
   if (blueprintRun?.isRunning) runningPhases.add('blueprint');
   if (synthesizeRun?.isRunning) runningPhases.add('synthesize');

@@ -67,6 +67,7 @@ export default function SynthesizePage() {
 
   const selected = session.survivors.find((s) => s.id === selectedId) ?? null;
   const marketResearch = selected ? session.verifications[selected.id] : undefined;
+  const stressTest = selected ? session.stressTests[selected.id] : undefined;
   const prd = selected ? session.prds[selected.id] : undefined;
   const blueprint = selected ? session.blueprints[selected.id] : undefined;
 
@@ -109,6 +110,7 @@ export default function SynthesizePage() {
           userContext: session.founderContext,
           survivorsMarkdown: survivorsToMarkdown(session.survivors),
           marketResearch,
+          stressTest,
           prd,
           blueprint,
           mode: capturedMode,

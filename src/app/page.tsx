@@ -29,7 +29,21 @@ import {
   Search,
   FileText,
   Code2,
+  Flame,
 } from 'lucide-react';
+
+function parseStressSeverity(report: string | undefined): 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null {
+  if (!report) return null;
+  const match = report.match(/\*\*Overall:\s*(CRITICAL|HIGH|MODERATE|LOW)\*\*/i);
+  return match ? (match[1].toUpperCase() as 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW') : null;
+}
+
+const SEVERITY_STYLES: Record<string, { text: string; bg: string; border: string }> = {
+  CRITICAL: { text: 'text-red-300', bg: 'bg-red-500/20', border: 'border-red-500/30' },
+  HIGH:     { text: 'text-orange-300', bg: 'bg-orange-500/20', border: 'border-orange-500/30' },
+  MODERATE: { text: 'text-amber-300', bg: 'bg-amber-500/20', border: 'border-amber-500/30' },
+  LOW:      { text: 'text-emerald-300', bg: 'bg-emerald-500/20', border: 'border-emerald-500/30' },
+};
 
 export default function Home() {
   const { session, update, ready } = useSession();
@@ -67,6 +81,8 @@ export default function Home() {
     update((prev) => {
       const verifications = { ...prev.verifications };
       delete verifications[idea.id];
+      const stressTests = { ...prev.stressTests };
+      delete stressTests[idea.id];
       const prds = { ...prev.prds };
       delete prds[idea.id];
       const blueprints = { ...prev.blueprints };
@@ -74,6 +90,7 @@ export default function Home() {
       return {
         discardedIdeas: prev.discardedIdeas.filter((d) => d.id !== idea.id),
         verifications,
+        stressTests,
         prds,
         blueprints,
       };
@@ -89,6 +106,7 @@ export default function Home() {
   );
 
   const verifiedCount = survivors.filter((s) => !!session.verifications[s.id]).length;
+  const stressTestedCount = survivors.filter((s) => !!session.stressTests[s.id]).length;
   const shapedCount = survivors.filter((s) => !!session.prds[s.id]).length;
   const blueprintedCount = survivors.filter((s) => !!session.blueprints[s.id]).length;
 
@@ -186,6 +204,7 @@ export default function Home() {
                     ).length
                   }
                   verified={Object.keys(session.verifications).length}
+                  stressTested={Object.keys(session.stressTests).length}
                   prds={Object.keys(session.prds).length}
                   blueprints={Object.keys(session.blueprints).length}
                 />
@@ -202,7 +221,9 @@ export default function Home() {
                     </Badge>
                   </div>
                   <div className="flex gap-2 text-xs font-mono text-zinc-500">
-                    <span>{verifiedCount}/{survivors.length} verified</span>
+                    <span>{verifiedCount}/{survivors.length} researched</span>
+                    <span className="text-zinc-700">•</span>
+                    <span>{stressTestedCount}/{survivors.length} stress tested</span>
                     <span className="text-zinc-700">•</span>
                     <span>{shapedCount}/{survivors.length} shaped</span>
                     <span className="text-zinc-700">•</span>
@@ -224,67 +245,90 @@ export default function Home() {
                     </Link>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {/* Matrix header */}
-                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto_auto] gap-3 px-3 py-1 text-xs text-zinc-600 font-mono uppercase tracking-wide">
-                      <div>Idea</div>
-                      <div className="w-14 text-center">Moat</div>
-                      <div className="w-20 text-center">Founder&nbsp;Fit</div>
-                      <div className="w-28 text-center">Verdict</div>
-                      <div className="w-16 text-center">Verify</div>
-                      <div className="w-16 text-center">Shape</div>
-                      <div className="w-16 text-center">Architect</div>
-                      <div className="w-16"></div>
-                    </div>
+                  <div className="space-y-3">
                     {survivors.map((s) => {
-                      const verified = !!session.verifications[s.id];
+                      const hasResearch = !!session.verifications[s.id];
+                      const stressReport = session.stressTests[s.id];
+                      const severity = parseStressSeverity(stressReport);
                       const shaped = !!session.prds[s.id];
                       const blueprinted = !!session.blueprints[s.id];
                       const isStrong = s.verdict === 'STRONG_INVEST';
+
+                      const scores = [
+                        { label: 'Moat', value: s.moatScore ?? 0 },
+                        { label: 'Fit', value: s.founderFitScore ?? 0 },
+                        { label: 'Timing', value: s.marketTimingScore ?? 0 },
+                        { label: 'Distro', value: s.distributionEdgeScore ?? 0 },
+                      ].filter(sc => sc.value > 0);
+
                       return (
                         <div
                           key={s.id}
-                          className={`grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto_auto] gap-3 items-center px-3 py-2.5 rounded-lg border transition-colors ${
+                          className={`rounded-lg border px-4 py-3 transition-colors ${
                             isStrong
                               ? 'bg-emerald-900/10 border-emerald-800/50'
                               : 'bg-zinc-950 border-zinc-800'
                           }`}
                         >
-                          <div className="min-w-0">
-                            <div className="text-sm text-zinc-200 truncate font-medium">{s.title}</div>
-                            {s.oneLiner && (
-                              <div className="text-xs text-zinc-500 truncate italic mt-0.5">&quot;{s.oneLiner}&quot;</div>
-                            )}
+                          {/* Top row: title + verdict + actions */}
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm text-zinc-200 font-medium truncate">{s.title}</span>
+                                <Badge className={`text-[10px] whitespace-nowrap shrink-0 ${isStrong ? 'bg-emerald-600' : 'bg-emerald-700'} text-white`}>
+                                  {isStrong ? 'STRONG INVEST' : 'INVEST'}
+                                </Badge>
+                                {severity && (
+                                  <Badge className={`text-[10px] whitespace-nowrap shrink-0 border ${SEVERITY_STYLES[severity].bg} ${SEVERITY_STYLES[severity].border} ${SEVERITY_STYLES[severity].text}`}>
+                                    {severity}
+                                  </Badge>
+                                )}
+                              </div>
+                              {s.oneLiner && (
+                                <div className="text-xs text-zinc-500 truncate italic mt-0.5">&quot;{s.oneLiner}&quot;</div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => togglePin(s)}
+                                className={`p-1 rounded transition-colors ${
+                                  s.pinned
+                                    ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-400/10'
+                                    : 'text-zinc-600 hover:text-amber-400 hover:bg-amber-400/10'
+                                }`}
+                                title={s.pinned ? 'Unpin — will be wiped on next Start Mining' : 'Pin — preserve across Start Mining runs'}
+                              >
+                                <Pin className={`w-3.5 h-3.5 ${s.pinned ? 'fill-current' : ''}`} />
+                              </button>
+                              <button
+                                onClick={() => discardIdea(s)}
+                                className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                                title="Discard idea"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
-                          <DashboardScore score={s.moatScore ?? 0} width="w-14" />
-                          <DashboardScore score={s.founderFitScore ?? 0} width="w-20" />
-                          <div className="w-28 flex justify-center">
-                            <Badge className={`text-[10px] whitespace-nowrap ${isStrong ? 'bg-emerald-600' : 'bg-emerald-700'} text-white`}>
-                              {isStrong ? 'STRONG INVEST' : 'INVEST'}
-                            </Badge>
-                          </div>
-                          <PhaseCell href="/verify" done={verified} />
-                          <PhaseCell href="/shape" done={shaped} />
-                          <PhaseCell href="/blueprint" done={blueprinted} />
-                          <div className="w-16 flex justify-center gap-1">
-                            <button
-                              onClick={() => togglePin(s)}
-                              className={`p-1 rounded transition-colors ${
-                                s.pinned
-                                  ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-400/10'
-                                  : 'text-zinc-600 hover:text-amber-400 hover:bg-amber-400/10'
-                              }`}
-                              title={s.pinned ? 'Unpin — will be wiped on next Start Mining' : 'Pin — preserve across Start Mining runs'}
-                            >
-                              <Pin className={`w-3.5 h-3.5 ${s.pinned ? 'fill-current' : ''}`} />
-                            </button>
-                            <button
-                              onClick={() => discardIdea(s)}
-                              className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
-                              title="Discard idea"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+
+                          {/* Bottom row: scores + pipeline */}
+                          <div className="flex items-center justify-between gap-3">
+                            {/* Scores */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {scores.map((sc) => (
+                                <MiniScore key={sc.label} label={sc.label} value={sc.value} />
+                              ))}
+                              {scores.length === 0 && (
+                                <span className="text-[10px] text-zinc-600 font-mono">No scores</span>
+                              )}
+                            </div>
+
+                            {/* Pipeline phases */}
+                            <div className="flex items-center gap-3 shrink-0">
+                              <PipelinePhase href="/verify" label="Research" done={hasResearch} icon={Search} color="yellow" />
+                              <PipelinePhase href="/verify" label="Stress" done={!!stressReport} icon={Flame} color="red" severity={severity} />
+                              <PipelinePhase href="/shape" label="Shape" done={shaped} icon={FileText} color="blue" />
+                              <PipelinePhase href="/blueprint" label="Architect" done={blueprinted} icon={Code2} color="purple" />
+                            </div>
                           </div>
                         </div>
                       );
@@ -383,33 +427,68 @@ export default function Home() {
   );
 }
 
-function dashboardScoreColor(score: number): string {
+function miniScoreColor(score: number): string {
   if (score >= 9) return 'text-emerald-300';
   if (score >= 7) return 'text-green-300';
   if (score >= 5) return 'text-amber-300';
   if (score >= 3) return 'text-orange-300';
-  if (score > 0) return 'text-red-300';
-  return 'text-zinc-600';
+  return 'text-red-300';
 }
 
-function DashboardScore({ score, width = 'w-14' }: { score: number; width?: string }) {
+function miniScoreBg(score: number): string {
+  if (score >= 9) return 'bg-emerald-500/10';
+  if (score >= 7) return 'bg-green-500/10';
+  if (score >= 5) return 'bg-amber-500/10';
+  if (score >= 3) return 'bg-orange-500/10';
+  return 'bg-red-500/10';
+}
+
+function MiniScore({ label, value }: { label: string; value: number }) {
   return (
-    <div className={`${width} text-center`}>
-      <span className={`text-sm font-bold font-mono ${dashboardScoreColor(score)}`}>
-        {score > 0 ? score : '—'}
-      </span>
+    <div className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 ${miniScoreBg(value)}`}>
+      <span className="text-[10px] font-mono text-zinc-500 uppercase">{label}</span>
+      <span className={`text-xs font-bold font-mono leading-none ${miniScoreColor(value)}`}>{value}</span>
     </div>
   );
 }
 
-function PhaseCell({ href, done }: { href: string; done: boolean }) {
+function PipelinePhase({
+  href,
+  label,
+  done,
+  icon: Icon,
+  color,
+  severity,
+}: {
+  href: string;
+  label: string;
+  done: boolean;
+  icon: typeof Search;
+  color: string;
+  severity?: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null;
+}) {
+  const colorMap: Record<string, { done: string; pending: string }> = {
+    yellow: { done: 'text-yellow-400', pending: 'text-zinc-600' },
+    red:    { done: 'text-red-400', pending: 'text-zinc-600' },
+    blue:   { done: 'text-blue-400', pending: 'text-zinc-600' },
+    purple: { done: 'text-purple-400', pending: 'text-zinc-600' },
+  };
+  const colors = colorMap[color] ?? colorMap.yellow;
+
   return (
-    <Link href={href} className="w-16 flex justify-center" title={done ? 'Done — click to revisit' : 'Not yet — click to run'}>
+    <Link
+      href={href}
+      className="flex items-center gap-1 group"
+      title={done ? `${label} — done (click to revisit)` : `${label} — not yet (click to run)`}
+    >
       {done ? (
-        <CheckCircle className="w-5 h-5 text-emerald-400 hover:text-emerald-300 transition-colors" />
+        <CheckCircle className={`w-4 h-4 ${colors.done} group-hover:opacity-80 transition-opacity`} />
       ) : (
-        <Circle className="w-5 h-5 text-zinc-600 hover:text-zinc-400 transition-colors" />
+        <Circle className={`w-4 h-4 ${colors.pending} group-hover:text-zinc-400 transition-colors`} />
       )}
+      <span className={`text-[10px] font-mono ${done ? 'text-zinc-400' : 'text-zinc-600'} group-hover:text-zinc-300 transition-colors`}>
+        {severity && done ? severity.slice(0, 3) : label}
+      </span>
     </Link>
   );
 }
@@ -418,19 +497,22 @@ function LifetimeStats({
   ideasMined,
   survivors,
   verified,
+  stressTested,
   prds,
   blueprints,
 }: {
   ideasMined: number;
   survivors: number;
   verified: number;
+  stressTested: number;
   prds: number;
   blueprints: number;
 }) {
   const stats = [
     { label: 'Mined', value: ideasMined, icon: Lightbulb, color: 'text-orange-400', bar: 'bg-orange-500' },
     { label: 'Survived', value: survivors, icon: Trophy, color: 'text-emerald-400', bar: 'bg-emerald-500' },
-    { label: 'Verified', value: verified, icon: Search, color: 'text-yellow-400', bar: 'bg-yellow-500' },
+    { label: 'Researched', value: verified, icon: Search, color: 'text-yellow-400', bar: 'bg-yellow-500' },
+    { label: 'Stressed', value: stressTested, icon: Flame, color: 'text-red-400', bar: 'bg-red-500' },
     { label: 'PRDs', value: prds, icon: FileText, color: 'text-blue-400', bar: 'bg-blue-500' },
     { label: 'Blueprints', value: blueprints, icon: Code2, color: 'text-purple-400', bar: 'bg-purple-500' },
   ];
@@ -443,7 +525,7 @@ function LifetimeStats({
         <Pickaxe className="w-3 h-3 text-zinc-600" />
         <span className="text-[10px] text-zinc-600 font-mono uppercase tracking-widest">All-time totals</span>
       </div>
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-6 gap-2">
       {stats.map((stat) => (
         <div key={stat.label} className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 flex items-center gap-2.5">
           <stat.icon className={`w-3.5 h-3.5 ${stat.color} shrink-0`} />

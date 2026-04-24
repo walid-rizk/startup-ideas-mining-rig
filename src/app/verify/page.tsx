@@ -6,28 +6,43 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import VerifySession from '@/components/mining/verify-session';
+import StressTestSession from '@/components/mining/stress-test-session';
 import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
 import { getVerdictRank } from '@/lib/session';
 import type { IdeaResult } from '@/lib/types';
-import { ArrowRight, Search, Trophy, ChevronRight, FileText, Loader2 } from 'lucide-react';
+import { ArrowRight, Search, Trophy, ChevronRight, FileText, Loader2, Flame } from 'lucide-react';
 import Link from 'next/link';
 import { reconstructVcMemo } from '@/lib/prompt-builders';
 import { usePhaseRun, getPhaseRun } from '@/lib/phase-status';
+
+type VerifyTab = 'research' | 'stress-test';
 
 export default function VerifyPage() {
   const { session, update, ready } = useSession();
   const [selectedIdea, setSelectedIdea] = useState<IdeaResult | null>(null);
   const [customIdea, setCustomIdea] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const [activeTab, setActiveTab] = useState<VerifyTab>('research');
   const verifyRun = usePhaseRun('verify');
+  const stressTestRun = usePhaseRun('stress-test');
 
   useEffect(() => {
     if (!ready) return;
-    const run = getPhaseRun('verify');
-    if (run?.isRunning) {
-      const idea = session.survivors.find(s => s.id === run.ideaId);
-      if (idea) setSelectedIdea(idea);
+    const vRun = getPhaseRun('verify');
+    const stRun = getPhaseRun('stress-test');
+    if (vRun?.isRunning) {
+      const idea = session.survivors.find(s => s.id === vRun.ideaId);
+      if (idea) {
+        setSelectedIdea(idea);
+        setActiveTab('research');
+      }
+    } else if (stRun?.isRunning) {
+      const idea = session.survivors.find(s => s.id === stRun.ideaId);
+      if (idea) {
+        setSelectedIdea(idea);
+        setActiveTab('stress-test');
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
@@ -38,9 +53,14 @@ export default function VerifyPage() {
     (a, b) => (a.verdict ? getVerdictRank(a.verdict) : 99) - (b.verdict ? getVerdictRank(b.verdict) : 99),
   );
 
-  const handleComplete = (report: string) => {
+  const handleVerifyComplete = (report: string) => {
     if (!selectedIdea) return;
     update((prev) => ({ verifications: { ...prev.verifications, [selectedIdea.id]: report } }));
+  };
+
+  const handleStressTestComplete = (report: string) => {
+    if (!selectedIdea) return;
+    update((prev) => ({ stressTests: { ...prev.stressTests, [selectedIdea.id]: report } }));
   };
 
   const handleCustomIdea = () => {
@@ -75,16 +95,89 @@ export default function VerifyPage() {
 
       <main className="flex-1 p-6">
         {selectedIdea && ideaForSession ? (
-          <VerifySession
-            userContext={session.founderContext}
-            ideaId={selectedIdea.id}
-            idea={ideaForSession}
-            vcMemo={vcMemo}
-            modelChoice={session.modelChoice}
-            initialReport={session.verifications[selectedIdea.id]}
-            onComplete={handleComplete}
-            onBack={() => setSelectedIdea(null)}
-          />
+          <div className="max-w-5xl mx-auto space-y-4">
+            {/* Idea header + back button */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-zinc-100">{selectedIdea.title}</h2>
+                {selectedIdea.verdict && (
+                  <Badge className={`${selectedIdea.verdict === 'STRONG_INVEST' ? 'bg-emerald-600' : 'bg-emerald-700'} text-white text-xs`}>
+                    {selectedIdea.verdict === 'STRONG_INVEST' ? 'Strong Invest' : 'Invest'}
+                  </Badge>
+                )}
+              </div>
+              <Button
+                onClick={() => setSelectedIdea(null)}
+                variant="outline"
+                size="sm"
+                className="font-mono border-zinc-700"
+              >
+                ← Back
+              </Button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-1 bg-zinc-900 rounded-lg p-1 border border-zinc-800">
+              <button
+                onClick={() => setActiveTab('research')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-mono transition-colors ${
+                  activeTab === 'research'
+                    ? 'bg-yellow-600 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                }`}
+              >
+                <Search className="w-4 h-4" />
+                Market Research
+                {session.verifications[selectedIdea.id] && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                )}
+                {verifyRun?.isRunning && verifyRun.ideaId === selectedIdea.id && (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('stress-test')}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-mono transition-colors ${
+                  activeTab === 'stress-test'
+                    ? 'bg-red-600 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                }`}
+              >
+                <Flame className="w-4 h-4" />
+                Stress Test
+                {session.stressTests[selectedIdea.id] && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                )}
+                {stressTestRun?.isRunning && stressTestRun.ideaId === selectedIdea.id && (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                )}
+              </button>
+            </div>
+
+            {/* Tab content */}
+            {activeTab === 'research' ? (
+              <VerifySession
+                userContext={session.founderContext}
+                ideaId={selectedIdea.id}
+                idea={ideaForSession}
+                vcMemo={vcMemo}
+                modelChoice={session.modelChoice}
+                initialReport={session.verifications[selectedIdea.id]}
+                onComplete={handleVerifyComplete}
+              />
+            ) : (
+              <StressTestSession
+                userContext={session.founderContext}
+                ideaId={selectedIdea.id}
+                idea={ideaForSession}
+                vcMemo={vcMemo}
+                marketResearch={session.verifications[selectedIdea.id]}
+                modelChoice={session.modelChoice}
+                initialReport={session.stressTests[selectedIdea.id]}
+                onComplete={handleStressTestComplete}
+              />
+            )}
+          </div>
         ) : (
           <div className="max-w-4xl mx-auto space-y-6">
             <Card className="bg-zinc-900 border-zinc-800 p-6">
@@ -93,10 +186,9 @@ export default function VerifyPage() {
                   <Search className="w-6 h-6 text-yellow-400" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-semibold text-zinc-100">Market Verification</h2>
+                  <h2 className="text-xl font-semibold text-zinc-100">Due Diligence</h2>
                   <p className="text-sm text-zinc-400 mt-1">
-                    Select a survivor idea to verify. The market research agent will research market
-                    size, competitors, and validate your assumptions.
+                    Select a survivor idea. Two lenses: <span className="text-yellow-400">Market Research</span> validates assumptions with data; <span className="text-red-400">Stress Test</span> finds the strongest reasons it fails.
                   </p>
                 </div>
               </div>
@@ -126,7 +218,8 @@ export default function VerifyPage() {
               ) : (
                 <div className="space-y-3">
                   {survivors.map((idea) => {
-                    const hasReport = !!session.verifications[idea.id];
+                    const hasResearch = !!session.verifications[idea.id];
+                    const hasStressTest = !!session.stressTests[idea.id];
                     const isStrongInvest = idea.verdict === 'STRONG_INVEST';
                     return (
                       <Card
@@ -154,14 +247,21 @@ export default function VerifyPage() {
                               </p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
                             {verifyRun?.isRunning && verifyRun.ideaId === idea.id && (
                               <Badge className="bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 text-xs animate-pulse">
                                 <Loader2 className="w-3 h-3 mr-1 animate-spin" />
                                 Verifying...
                               </Badge>
                             )}
-                            {hasReport && <Badge className="bg-green-600 text-white text-xs">Verified</Badge>}
+                            {stressTestRun?.isRunning && stressTestRun.ideaId === idea.id && (
+                              <Badge className="bg-red-500/20 text-red-300 border border-red-500/30 text-xs animate-pulse">
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                Testing...
+                              </Badge>
+                            )}
+                            {hasResearch && <Badge className="bg-yellow-600 text-white text-xs">Researched</Badge>}
+                            {hasStressTest && <Badge className="bg-red-600 text-white text-xs">Stress Tested</Badge>}
                             {idea.verdict && (
                               <Badge className={`${isStrongInvest ? 'bg-emerald-600' : 'bg-emerald-700'} text-white text-xs`}>
                                 {isStrongInvest ? 'Strong Invest' : 'Invest'}
@@ -220,7 +320,7 @@ export default function VerifyPage() {
 
       <footer className="border-t border-zinc-800 px-6 py-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
-          <span>Verify • Market Research</span>
+          <span>Verify • Due Diligence</span>
           <span>{session.modelChoice.provider} • {session.modelChoice.model}</span>
         </div>
       </footer>

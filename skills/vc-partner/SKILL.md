@@ -111,6 +111,22 @@ Anchors so scores stay meaningful across memos. Integer values only.
 - **7–8:** Strong fit. Founder has 2+ unfair advantages that compound on this specific idea. Most competitors start at a real disadvantage.
 - **9–10:** Singular fit. Only this founder, or a handful like them, could pull this off. Multiple rare advantages stack.
 
+### Market Timing Score (1–10) — is now the right moment to start this
+
+- **1–2:** Dead wrong timing. Either the market existed 5 years ago and incumbents own it, or the enablers don't exist yet and won't for 2+ years.
+- **3–4:** Early or late. The thesis is sound but the window isn't open — buyers aren't educated, infrastructure is immature, or a wave of competitors just launched.
+- **5–6:** Plausible timing. A shift happened recently but it's unclear whether it's enough to create real urgency. Could work, but "why now" is a stretch.
+- **7–8:** Good timing. A specific enabler (technology cost curve, regulatory change, platform shift) landed in the last 12–24 months that makes this newly viable. Incumbents are slow to respond.
+- **9–10:** Perfect storm. Multiple independent tailwinds converged in the last 12 months. Clear "why now" that didn't exist 2 years ago. Window is open but closing — urgency is real.
+
+### Distribution Edge Score (1–10) — can this founder reach the first 100 customers
+
+- **1–2:** No path. Founder has no network, no channel, and no credibility with the target buyer. Requires cold outbound to unreachable personas.
+- **3–4:** Generic path. A distribution plan exists on paper (content marketing, paid ads) but nothing founder-specific. Any competitor has the same playbook.
+- **5–6:** One real channel. Founder has a specific community, network, or credibility wedge that gives them access to a first cohort. But scaling beyond that cohort is unclear.
+- **7–8:** Strong distribution. Founder has 2+ channels grounded in their actual network, reputation, or existing audience. First 100 customers are reachable without paid acquisition. Scales via community or referral.
+- **9–10:** Built-in distribution. Founder has existing relationships with or access to the exact buyer persona. Could get 10 design partners within 30 days through warm intros alone.
+
 Be willing to give 2s and 9s. A memo full of 6s and 7s suggests drift, not calibration.
 
 ## Writing Standards
@@ -172,6 +188,10 @@ Every field (except pure lists and scores) must begin with a **one-sentence head
 
 **Founder Fit Score:** [1-10] — [one-sentence justification tied to a specific Unfair Advantage in the Founder Context]
 
+**Market Timing Score:** [1-10] — [one-sentence justification tied to a specific enabler or shift that makes this viable now]
+
+**Distribution Edge Score:** [1-10] — [one-sentence justification tied to this founder's specific path to first 100 customers]
+
 **Hair-on-Fire Check:** [One-sentence headline: "Top-3 problem for [persona] this quarter" OR "Nice-to-have that gets deprioritized when [X]."]
 - [Buying persona + their current top 3 priorities]
 - [Evidence for urgency: budget cycle, regulation, recent incident, etc.]
@@ -202,7 +222,7 @@ Every field (except pure lists and scores) must begin with a **one-sentence head
 - [ ] Every memo has a `**Verdict:**` line with exactly one of the four enum values — exact spelling, underscores.
 - [ ] Every field (except One-Liner and the two Scores) follows **headline + bullets** — headline is one sentence; detail lives in bullets below.
 - [ ] No field contains a multi-sentence paragraph. Split prose into headline + bullets.
-- [ ] Every memo has Moat Score and Founder Fit Score with integer values — calibrated against the anchors, not clustered in the 5–7 band.
+- [ ] Every memo has all four scores (Moat, Founder Fit, Market Timing, Distribution Edge) with integer values — calibrated against the anchors, not clustered in the 5–7 band.
 - [ ] Every memo names at least 2 specific comparable companies by real name.
 - [ ] Market Sizing has actual numbers with basis, not "large market."
 - [ ] Key Risks is a bullet list of 3 distinct risks.

@@ -28,8 +28,12 @@ const ideaResultSchema: z.ZodType<IdeaResult> = z.object({
   pinned: z.boolean().optional(),
   moatScore: z.number().optional(),
   founderFitScore: z.number().optional(),
+  marketTimingScore: z.number().optional(),
+  distributionEdgeScore: z.number().optional(),
   moatRationale: z.string().optional(),
   founderFitRationale: z.string().optional(),
+  marketTimingRationale: z.string().optional(),
+  distributionEdgeRationale: z.string().optional(),
   oneLiner: z.string().optional(),
   bullCase: z.string().optional(),
   bearCase: z.string().optional(),
@@ -70,6 +74,7 @@ const sessionSchema: z.ZodType<Session, any, any> = z.object({
   allIdeas: z.array(ideaResultSchema),
   discardedIdeas: z.array(ideaResultSchema).default([]),
   verifications: z.record(z.string(), z.string()),
+  stressTests: z.record(z.string(), z.string()).default({}),
   prds: z.record(z.string(), z.string()),
   blueprints: z.record(z.string(), z.string()),
   synthesis: z.string().nullable(),
@@ -91,6 +96,7 @@ export function createEmptySession(): Session {
     allIdeas: [],
     discardedIdeas: [],
     verifications: {},
+    stressTests: {},
     prds: {},
     blueprints: {},
     synthesis: null,
@@ -128,12 +134,13 @@ export function loadSession(): Session | null {
     if (!raw) return null;
     const parsed = sessionSchema.parse(JSON.parse(raw));
 
-    const { ideas: survivors, maps: [v1, p1, b1] } = deduplicateIdeas(
+    const { ideas: survivors, maps: [v1, st1, p1, b1] } = deduplicateIdeas(
       parsed.survivors,
-      [parsed.verifications, parsed.prds, parsed.blueprints],
+      [parsed.verifications, parsed.stressTests, parsed.prds, parsed.blueprints],
     );
     parsed.survivors = survivors;
     parsed.verifications = v1;
+    parsed.stressTests = st1;
     parsed.prds = p1;
     parsed.blueprints = b1;
 

@@ -21,6 +21,7 @@ Each skill is a markdown file with YAML frontmatter and a system-prompt body. Th
 | `futurist` | mine | Generates startup ideas (3 per batch) fitting Founder DNA |
 | `vc-partner` | mine | Writes investment memos (verdict + memo structure) |
 | `data-miner` | verify | Market research, TAM/SAM/SOM, competitor analysis |
+| `stress-tester` | verify | Devil's advocate — finds strongest failure modes for an idea |
 | `product-manager` | shape | Produces a lean PRD for a selected idea |
 | `cto` | blueprint | Technical build plan (architecture, stack, milestones) |
 | `synthesizer` | output | Rolls up all artifacts into investor brief or build packet |
@@ -42,6 +43,7 @@ Thin handlers — each parses input, calls its prompt builder, and delegates to 
 - `/api/mining/generate` — futurist ideas (batch)
 - `/api/mining/critique` — vc-partner memos
 - `/api/mining/verify` — data-miner market research
+- `/api/mining/stress-test` — stress-tester adversarial analysis
 - `/api/mining/shape` — product-manager PRD
 - `/api/mining/blueprint` — cto technical plan
 - `/api/mining/synthesize` — synthesizer final packet
@@ -50,9 +52,9 @@ Thin handlers — each parses input, calls its prompt builder, and delegates to 
 Single `Session` object in React context, debounced-persisted to localStorage (`idea-mining-rig.session.v1`). Shape (see `src/lib/types.ts`):
 ```ts
 { id, createdAt, updatedAt, founderContext, thesis, modelChoice,
-  intakeMessages, survivors, allIdeas, verifications, prds, blueprints, synthesis }
+  intakeMessages, survivors, allIdeas, verifications, stressTests, prds, blueprints, synthesis }
 ```
-Survivors carry structured fields parsed from the vc-partner memo (`verdict`, `moatScore`, `oneLiner`, `bullCase`, `bearCase`, `comparableCompanies`, `marketSizing`, `unitEconomics`, `keyRisks`, etc.). Parsing logic lives in `src/components/mining/war-room.tsx` (`parseVerdicts`).
+Survivors carry structured fields parsed from the vc-partner memo (`verdict`, `moatScore`, `founderFitScore`, `marketTimingScore`, `distributionEdgeScore`, `oneLiner`, `bullCase`, `bearCase`, `comparableCompanies`, `marketSizing`, `unitEconomics`, `keyRisks`, etc.). Parsing logic lives in `src/components/mining/war-room.tsx` (`parseVerdicts`).
 
 ### Pages
 | Route | Component driver | Purpose |
@@ -60,7 +62,7 @@ Survivors carry structured fields parsed from the vc-partner memo (`verdict`, `m
 | `/` | inline | Dashboard — thesis headline, survivors × phases matrix, next-step nudge |
 | `/intake` | `IntakeSession` + inline | Multi-turn chat to build founder context; also hosts the Thesis generator and Chosen Thesis editor (combined phase) |
 | `/mine` | `WarRoom` | Gauntlet loop: generate + critique until 4 survivors or 3 batches |
-| `/verify` | `VerifySession` | Per-survivor market research |
+| `/verify` | `VerifySession` + `StressTestSession` | Per-survivor due diligence: market research (data-miner) + stress test (devil's advocate) in tabs |
 | `/shape` | `ShapeSession` | Per-survivor PRD |
 | `/blueprint` | `BlueprintSession` | Per-survivor technical plan (displayed as "Architect") |
 | `/synthesize` | inline | Package session → investor brief / build packet |
@@ -99,6 +101,7 @@ You can invoke any skill directly in this terminal to smoke-test output without 
 | `run spark` | Act as `futurist` for one batch. Output 3 ideas. No critique. |
 | `run roast <ideas>` | Act as `vc-partner`. Critique the provided ideas per the memo contract. |
 | `run verify <idea>` | Act as `data-miner`. Fact-check market size / competitors. Use WebSearch. |
+| `run stress-test <idea>` | Act as `stress-tester`. Find the 3-5 strongest failure modes. |
 | `run shape <idea>` | Act as `product-manager`. Output a lean PRD. |
 | `run blueprint <idea>` | Act as `cto`. Output a walking-skeleton technical plan. |
 | `run synthesize` | Act as `synthesizer`. Roll up session artifacts into investor brief or build packet (ask which). |
