@@ -56,12 +56,19 @@ Single `Session` object in React context, debounced-persisted to localStorage (`
 ```
 Survivors carry structured fields parsed from the vc-partner memo (`verdict`, `moatScore`, `founderFitScore`, `marketTimingScore`, `distributionEdgeScore`, `oneLiner`, `bullCase`, `bearCase`, `comparableCompanies`, `marketSizing`, `unitEconomics`, `keyRisks`, etc.). Parsing logic lives in `src/components/mining/war-room.tsx` (`parseVerdicts`).
 
+### Scoring & Confidence Pipeline
+Ideas accumulate structured signals across phases:
+- **VC Partner (Mine):** verdict + 4-dimension scores (Moat, Founder Fit, Market Timing, Distribution Edge, each 1-10)
+- **Data Miner (Verify):** **Market Confidence** rating (STRONG / MODERATE / WEAK / INSUFFICIENT) — emitted as the first line after the report title, parsed by `parseMarketConfidence()` in both `verify-session.tsx` and `page.tsx`
+- **Stress Tester (Verify):** **Stress Severity** rating (CRITICAL / HIGH / MODERATE / LOW) — emitted as `**Overall: [LEVEL]**`, parsed by `parseStressSeverity()` in both `stress-test-session.tsx` and `page.tsx`
+- **Dashboard (derived):** **Composite Health** (High Confidence / Promising / Caution / At Risk) — computed by `computeIdeaHealth()` in `page.tsx` from the average of available VC scores, adjusted by market confidence (STRONG: +1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5) and stress severity (CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: +0.5). Only displayed after at least one diligence phase completes.
+
 ### Pages
 | Route | Component driver | Purpose |
 | --- | --- | --- |
-| `/` | inline | Dashboard — thesis headline, survivors × phases matrix, next-step nudge |
+| `/` | inline | Dashboard — thesis headline, survivors with scores + health badges + clickable pipeline phases (deep-link to specific idea via `?idea=<id>`), next-step nudge |
 | `/intake` | `IntakeSession` + inline | Multi-turn chat to build founder context; also hosts the Thesis generator and Chosen Thesis editor (combined phase) |
-| `/mine` | `WarRoom` | Gauntlet loop: generate + critique until 4 survivors or 3 batches |
+| `/mine` | `WarRoom` | Gauntlet loop: generate + critique until 4 survivors or 3 batches. Survivors panel has a draggable resize handle (persisted to localStorage) |
 | `/verify` | `VerifySession` + `StressTestSession` | Per-survivor due diligence: market research (data-miner) + stress test (devil's advocate) in tabs |
 | `/shape` | `ShapeSession` | Per-survivor PRD |
 | `/blueprint` | `BlueprintSession` | Per-survivor technical plan (displayed as "Architect") |
@@ -76,7 +83,8 @@ Implemented in `src/components/mining/war-room.tsx`:
 5. Repeat until ≥4 survivors OR 3 batches completed.
 
 ## Conventions
-- **Output format:** every skill emits markdown. The vc-partner memo contract is the most structured — do not break field names without updating `parseVerdicts` and `IdeaResult` types in lockstep.
+- **Output format:** every skill emits markdown. The vc-partner memo contract is the most structured — do not break field names without updating `parseVerdicts` and `IdeaResult` types in lockstep. The data-miner emits a `**Market Confidence: LEVEL**` line as the first line after the title (parsed by UI). The stress-tester emits `**Overall: LEVEL**` (parsed by UI).
+- **Deep linking:** phase pages (`/verify`, `/shape`, `/blueprint`) accept `?idea=<id>` query params to auto-select a survivor. The verify page also accepts `&tab=stress-test` to open directly to the stress test tab.
 - **Streaming:** all LLM responses stream. Use `streamToText(res, setOutput)` from `src/lib/streaming.ts` on the client.
 - **Model choice:** every API call accepts `modelChoice` in the body; routes fall back to `DEFAULT_MODEL` (Gemini 2.5 Flash).
 - **No database:** all state in localStorage. Import/export via JSON in `SessionToolbar`.

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +17,12 @@ import { reconstructVcMemo } from '@/lib/prompt-builders';
 import { usePhaseRun, getPhaseRun } from '@/lib/phase-status';
 
 export default function ShapePage() {
+  return <Suspense><ShapePageInner /></Suspense>;
+}
+
+function ShapePageInner() {
   const { session, update, ready } = useSession();
+  const searchParams = useSearchParams();
   const [selectedIdea, setSelectedIdea] = useState<IdeaResult | null>(null);
   const [customIdea, setCustomIdea] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
@@ -27,6 +33,11 @@ export default function ShapePage() {
     const run = getPhaseRun('shape');
     if (run?.isRunning) {
       const idea = session.survivors.find(s => s.id === run.ideaId);
+      if (idea) { setSelectedIdea(idea); return; }
+    }
+    const ideaParam = searchParams.get('idea');
+    if (ideaParam) {
+      const idea = session.survivors.find(s => s.id === ideaParam);
       if (idea) setSelectedIdea(idea);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,8 +139,10 @@ export default function ShapePage() {
               ) : (
                 <div className="space-y-3">
                   {ideas.map((idea) => {
+                    const hasResearch = !!session.verifications[idea.id];
+                    const hasStressTest = !!session.stressTests[idea.id];
                     const hasPRD = !!session.prds[idea.id];
-                    const isVerified = !!session.verifications[idea.id];
+                    const hasBlueprint = !!session.blueprints[idea.id];
                     const isStrongInvest = idea.verdict === 'STRONG_INVEST';
                     return (
                       <Card
@@ -157,12 +170,9 @@ export default function ShapePage() {
                               </p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            {isVerified && (
-                              <Badge variant="outline" className="text-yellow-400 border-yellow-400/50 text-xs">
-                                Verified
-                              </Badge>
-                            )}
+                          <div className="flex items-center gap-2">
+                            {hasResearch && <Badge variant="outline" className="text-yellow-400 border-yellow-400/50 text-xs">Researched</Badge>}
+                            {hasStressTest && <Badge variant="outline" className="text-red-400 border-red-400/50 text-xs">Stress Tested</Badge>}
                             {shapeRun?.isRunning && shapeRun.ideaId === idea.id && (
                               <Badge className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs animate-pulse">
                                 <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -170,6 +180,7 @@ export default function ShapePage() {
                               </Badge>
                             )}
                             {hasPRD && <Badge className="bg-blue-600 text-white text-xs">PRD Ready</Badge>}
+                            {hasBlueprint && <Badge variant="outline" className="text-purple-400 border-purple-400/50 text-xs">Blueprint</Badge>}
                             {idea.verdict && (
                               <Badge className={`${isStrongInvest ? 'bg-emerald-600' : 'bg-emerald-700'} text-white text-xs`}>
                                 {isStrongInvest ? 'Strong Invest' : 'Invest'}

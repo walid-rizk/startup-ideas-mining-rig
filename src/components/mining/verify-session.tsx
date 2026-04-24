@@ -34,10 +34,9 @@ interface VerifySessionProps {
   modelChoice: ModelChoice;
   initialReport?: string;
   onComplete?: (report: string) => void;
-  onBack?: () => void;
 }
 
-export default function VerifySession({ userContext, ideaId, idea, vcMemo, modelChoice, initialReport, onComplete, onBack }: VerifySessionProps) {
+export default function VerifySession({ userContext, ideaId, idea, vcMemo, modelChoice, initialReport, onComplete }: VerifySessionProps) {
   const phaseRun = usePhaseRun('verify');
   const isActiveRun = phaseRun != null && phaseRun.ideaId === ideaId;
   const isVerifying = !!(isActiveRun && phaseRun!.isRunning);
@@ -212,6 +211,21 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
     );
   };
 
+  const parseMarketConfidence = (): { level: string; color: string; bgColor: string; borderColor: string } | null => {
+    const match = researchOutput.match(/Market Confidence[:\s*]*(?:\*\*\s*)?(STRONG|MODERATE|WEAK|INSUFFICIENT)/i);
+    if (!match) return null;
+    const level = match[1].toUpperCase();
+    const config: Record<string, { color: string; bgColor: string; borderColor: string }> = {
+      STRONG:       { color: 'text-emerald-300', bgColor: 'bg-emerald-500/20', borderColor: 'border-emerald-500/30' },
+      MODERATE:     { color: 'text-amber-300', bgColor: 'bg-amber-500/20', borderColor: 'border-amber-500/30' },
+      WEAK:         { color: 'text-red-300', bgColor: 'bg-red-500/20', borderColor: 'border-red-500/30' },
+      INSUFFICIENT: { color: 'text-zinc-300', bgColor: 'bg-zinc-500/20', borderColor: 'border-zinc-500/30' },
+    };
+    return { level, ...config[level] };
+  };
+
+  const marketConfidence = parseMarketConfidence();
+
   const sections = [
     { key: 'market', label: 'MARKET SNAPSHOT', icon: BarChart3, color: 'text-emerald-400', bgColor: 'bg-emerald-500/10', borderColor: 'border-emerald-500/20' },
     { key: 'competitors', label: 'COMPETITOR LANDSCAPE', icon: Building2, color: 'text-blue-400', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/20' },
@@ -264,64 +278,54 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      {/* Idea Summary Card */}
-      <Card className="bg-zinc-900 border-zinc-800 p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-lg bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center">
-              <Search className="w-6 h-6 text-yellow-400" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-zinc-100">{idea.title}</h2>
-              <p className="text-sm text-zinc-500 mt-1">Phase 3: Market Verification</p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            {onBack && (
-              <Button
-                onClick={onBack}
-                variant="outline"
-                className="font-mono border-zinc-700"
-              >
-                ← Back
-              </Button>
-            )}
-            {!isVerifying ? (
-              <Button
-                onClick={startVerification}
-                className="bg-yellow-600 hover:bg-yellow-700 text-white font-mono"
-                disabled={isVerifying}
-              >
-                <Search className="w-4 h-4 mr-2" />
-                START VERIFICATION
-              </Button>
-            ) : (
-              <Button
-                onClick={stopVerification}
-                variant="destructive"
-                className="font-mono"
-              >
-                STOP
-              </Button>
-            )}
-          </div>
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Search className="w-5 h-5 text-yellow-400" />
+          <span className="font-mono text-sm text-zinc-300">MARKET RESEARCH</span>
+          {marketConfidence && (
+            <Badge className={`text-xs border ${marketConfidence.bgColor} ${marketConfidence.borderColor} ${marketConfidence.color}`}>
+              {marketConfidence.level}
+            </Badge>
+          )}
         </div>
+        <div className="flex gap-2">
+          {!isVerifying ? (
+            <Button
+              onClick={startVerification}
+              size="sm"
+              className="bg-yellow-600 hover:bg-yellow-700 text-white font-mono text-xs"
+            >
+              <Search className="w-3.5 h-3.5 mr-1.5" />
+              {initialReport || researchOutput ? 'RE-RUN VERIFICATION' : 'RUN VERIFICATION'}
+            </Button>
+          ) : (
+            <Button
+              onClick={stopVerification}
+              size="sm"
+              variant="destructive"
+              className="font-mono text-xs"
+            >
+              STOP
+            </Button>
+          )}
+        </div>
+      </div>
 
-        {/* Progress */}
-        {isVerifying && (
-          <div className="mt-4 space-y-2">
-            <div className="flex justify-between text-xs font-mono text-zinc-400">
-              <span className="flex items-center gap-2">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Data Miner analyzing market...
-              </span>
-              <span>{Math.round(progress)}%</span>
-            </div>
-            <Progress value={progress} className="h-2" />
+      {/* Progress */}
+      {isVerifying && (
+        <div className="space-y-1.5">
+          <div className="flex justify-between text-xs font-mono text-zinc-400">
+            <span className="flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Data Miner analyzing market...
+            </span>
+            <span>{Math.round(progress)}%</span>
           </div>
-        )}
-      </Card>
+          <Progress value={progress} className="h-1.5" />
+        </div>
+      )}
 
       {/* Research Output */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -329,7 +333,7 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
         <Card className="bg-zinc-950 border-zinc-800 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Search className={`w-4 h-4 ${isVerifying ? 'text-yellow-400 animate-pulse' : 'text-zinc-500'}`} />
-            <span className="font-mono text-sm text-zinc-300">DATA MINER OUTPUT</span>
+            <span className="font-mono text-sm text-zinc-300">RAW OUTPUT</span>
             {isVerifying && (
               <Badge variant="outline" className="text-yellow-400 border-yellow-400/50 text-xs">
                 RESEARCHING
@@ -355,6 +359,24 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
             <span className="font-mono text-sm text-zinc-300">RESEARCH INSIGHTS</span>
           </div>
           <div className="max-h-[600px] overflow-y-auto space-y-3 pr-2">
+            {marketConfidence && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`rounded-lg p-4 border ${marketConfidence.bgColor} ${marketConfidence.borderColor}`}
+              >
+                <div className={`flex items-center gap-2 mb-2 ${marketConfidence.color}`}>
+                  <TrendingUp className="w-4 h-4" />
+                  <span className="font-mono text-xs font-semibold">MARKET CONFIDENCE</span>
+                </div>
+                <p className="text-sm text-zinc-100 leading-relaxed font-medium">{marketConfidence.level}</p>
+                {(() => {
+                  const m = researchOutput.match(/Market Confidence[:\s*]*(?:\*\*\s*)?(?:STRONG|MODERATE|WEAK|INSUFFICIENT)\s*\*?\*?\s*\n([^\n]+)/i);
+                  return m ? <p className="text-xs text-zinc-400 mt-1">{m[1].replace(/^\*?\*?\s*/, '').replace(/\*?\*?\s*$/, '').trim()}</p> : null;
+                })()}
+              </motion.div>
+            )}
+
             <AnimatePresence>
               {sections.map((section, index) => {
                 const content = parseSection(section.label);

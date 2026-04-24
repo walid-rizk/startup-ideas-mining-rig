@@ -176,6 +176,50 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   const ownRunRef = useRef(false);
   const globalMining = useMiningStatus();
 
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [survivorsPct, setSurvivorsPctRaw] = useState(() => {
+    if (typeof window === 'undefined') return 33.33;
+    const saved = localStorage.getItem('mining-rig.survivors-pct');
+    return saved ? parseFloat(saved) : 33.33;
+  });
+  const setSurvivorsPct = useCallback((v: number | ((prev: number) => number)) => {
+    setSurvivorsPctRaw((prev) => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      localStorage.setItem('mining-rig.survivors-pct', String(next));
+      return next;
+    });
+  }, []);
+  const dragRef = useRef<{ startX: number; startPct: number } | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const startDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startPct: survivorsPct };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const containerWidth = containerRef.current?.clientWidth || window.innerWidth;
+      const dx = dragRef.current.startX - ev.clientX;
+      const dPct = (dx / containerWidth) * 100;
+      const newPct = Math.min(60, Math.max(33.33, dragRef.current.startPct + dPct));
+      setSurvivorsPct(newPct);
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [survivorsPct]);
+
+  useEffect(() => {
+    const check = () => setIsDesktop(window.innerWidth >= 1024);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
   const targetSurvivors = 4;
 
   const resyncFromProps = useCallback(() => {
@@ -804,12 +848,12 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       </div>
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-zinc-800">
+      <div ref={containerRef} className="flex flex-col lg:flex-row divide-y lg:divide-y-0 divide-zinc-800">
         {/* Futurist Panel */}
-        <div className="p-4">
+        <div className="p-4 border-r border-zinc-800 overflow-hidden" style={{ width: isDesktop ? `${(100 - survivorsPct) / 2}%` : undefined }}>
           <div className="flex items-center gap-2 mb-3">
-            <Lightbulb className={`w-4 h-4 ${phase === 'generating' ? 'text-amber-400 animate-pulse' : 'text-zinc-500'}`} />
-            <span className="font-mono text-sm text-zinc-300">FUTURIST</span>
+            <Lightbulb className={`w-4 h-4 shrink-0 ${phase === 'generating' ? 'text-amber-400 animate-pulse' : 'text-zinc-500'}`} />
+            <span className="font-mono text-sm text-zinc-300 whitespace-nowrap">FUTURIST</span>
             {phase === 'generating' && (
               <Badge variant="outline" className="text-amber-400 border-amber-400/50 text-xs">
                 GENERATING
@@ -827,10 +871,10 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         </div>
 
         {/* VC Partner Panel */}
-        <div className="p-4">
+        <div className="p-4 border-r border-zinc-800 overflow-hidden" style={{ width: isDesktop ? `${(100 - survivorsPct) / 2}%` : undefined }}>
           <div className="flex items-center gap-2 mb-3">
-            <Gavel className={`w-4 h-4 ${phase === 'critiquing' ? 'text-green-400 animate-pulse' : 'text-zinc-500'}`} />
-            <span className="font-mono text-sm text-zinc-300">VC PARTNER</span>
+            <Gavel className={`w-4 h-4 shrink-0 ${phase === 'critiquing' ? 'text-green-400 animate-pulse' : 'text-zinc-500'}`} />
+            <span className="font-mono text-sm text-zinc-300 whitespace-nowrap">VC PARTNER</span>
             {phase === 'critiquing' && (
               <Badge variant="outline" className="text-green-400 border-green-400/50 text-xs">
                 CRITIQUING
@@ -844,8 +888,17 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
           </div>
         </div>
 
+        {/* Drag handle */}
+        <div
+          onMouseDown={startDrag}
+          className="hidden lg:flex w-1.5 cursor-col-resize items-center justify-center hover:bg-zinc-700/50 active:bg-zinc-600/50 transition-colors shrink-0 group"
+          title="Drag to resize"
+        >
+          <div className="w-0.5 h-8 bg-zinc-700 rounded-full group-hover:bg-zinc-500 transition-colors" />
+        </div>
+
         {/* Survivors Panel */}
-        <div className="p-4">
+        <div className="p-4 overflow-hidden" style={{ width: isDesktop ? `${survivorsPct}%` : undefined }}>
           <div className="flex items-center gap-2 mb-3">
             <Trophy className={`w-4 h-4 ${survivors.length > 0 ? 'text-emerald-400' : 'text-zinc-500'}`} />
             <span className="font-mono text-sm text-zinc-300">SURVIVORS</span>

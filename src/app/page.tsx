@@ -38,12 +38,51 @@ function parseStressSeverity(report: string | undefined): 'CRITICAL' | 'HIGH' | 
   return match ? (match[1].toUpperCase() as 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW') : null;
 }
 
-const SEVERITY_STYLES: Record<string, { text: string; bg: string; border: string }> = {
-  CRITICAL: { text: 'text-red-300', bg: 'bg-red-500/20', border: 'border-red-500/30' },
-  HIGH:     { text: 'text-orange-300', bg: 'bg-orange-500/20', border: 'border-orange-500/30' },
-  MODERATE: { text: 'text-amber-300', bg: 'bg-amber-500/20', border: 'border-amber-500/30' },
-  LOW:      { text: 'text-emerald-300', bg: 'bg-emerald-500/20', border: 'border-emerald-500/30' },
+function parseMarketConfidence(report: string | undefined): 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT' | null {
+  if (!report) return null;
+  const match = report.match(/Market Confidence[:\s*]*(?:\*\*\s*)?(STRONG|MODERATE|WEAK|INSUFFICIENT)/i);
+  return match ? (match[1].toUpperCase() as 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT') : null;
+}
+
+type HealthLevel = 'HIGH_CONFIDENCE' | 'PROMISING' | 'CAUTION' | 'AT_RISK';
+
+const HEALTH_STYLES: Record<HealthLevel, { text: string; bg: string; border: string }> = {
+  HIGH_CONFIDENCE: { text: 'text-emerald-300', bg: 'bg-emerald-500/20', border: 'border-emerald-500/30' },
+  PROMISING:       { text: 'text-cyan-300', bg: 'bg-cyan-500/20', border: 'border-cyan-500/30' },
+  CAUTION:         { text: 'text-amber-300', bg: 'bg-amber-500/20', border: 'border-amber-500/30' },
+  AT_RISK:         { text: 'text-red-300', bg: 'bg-red-500/20', border: 'border-red-500/30' },
 };
+
+function computeIdeaHealth(
+  idea: PublicIdeaResult,
+  marketConfidence: 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT' | null,
+  stressSeverity: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null,
+): { level: HealthLevel; label: string } | null {
+  const scores = [idea.moatScore, idea.founderFitScore, idea.marketTimingScore, idea.distributionEdgeScore]
+    .filter((s): s is number => s != null && s > 0);
+
+  if (!marketConfidence && !stressSeverity) return null;
+  if (scores.length === 0) return null;
+
+  let score = scores.reduce((a, b) => a + b, 0) / scores.length;
+
+  if (marketConfidence) {
+    const adj: Record<string, number> = { STRONG: 1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5 };
+    score += adj[marketConfidence];
+  }
+
+  if (stressSeverity) {
+    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: 0.5 };
+    score += adj[stressSeverity];
+  }
+
+  score = Math.max(0, Math.min(10, score));
+
+  if (score >= 8) return { level: 'HIGH_CONFIDENCE', label: 'High Confidence' };
+  if (score >= 6) return { level: 'PROMISING', label: 'Promising' };
+  if (score >= 4) return { level: 'CAUTION', label: 'Caution' };
+  return { level: 'AT_RISK', label: 'At Risk' };
+}
 
 export default function Home() {
   const { session, update, ready } = useSession();
@@ -247,9 +286,12 @@ export default function Home() {
                 ) : (
                   <div className="space-y-3">
                     {survivors.map((s) => {
-                      const hasResearch = !!session.verifications[s.id];
+                      const verificationReport = session.verifications[s.id];
+                      const hasResearch = !!verificationReport;
+                      const confidence = parseMarketConfidence(verificationReport);
                       const stressReport = session.stressTests[s.id];
                       const severity = parseStressSeverity(stressReport);
+                      const health = computeIdeaHealth(s, confidence, severity);
                       const shaped = !!session.prds[s.id];
                       const blueprinted = !!session.blueprints[s.id];
                       const isStrong = s.verdict === 'STRONG_INVEST';
@@ -278,9 +320,9 @@ export default function Home() {
                                 <Badge className={`text-[10px] whitespace-nowrap shrink-0 ${isStrong ? 'bg-emerald-600' : 'bg-emerald-700'} text-white`}>
                                   {isStrong ? 'STRONG INVEST' : 'INVEST'}
                                 </Badge>
-                                {severity && (
-                                  <Badge className={`text-[10px] whitespace-nowrap shrink-0 border ${SEVERITY_STYLES[severity].bg} ${SEVERITY_STYLES[severity].border} ${SEVERITY_STYLES[severity].text}`}>
-                                    {severity}
+                                {health && (
+                                  <Badge className={`text-[10px] whitespace-nowrap shrink-0 border ${HEALTH_STYLES[health.level].bg} ${HEALTH_STYLES[health.level].border} ${HEALTH_STYLES[health.level].text}`}>
+                                    {health.label}
                                   </Badge>
                                 )}
                               </div>
@@ -324,10 +366,10 @@ export default function Home() {
 
                             {/* Pipeline phases */}
                             <div className="flex items-center gap-3 shrink-0">
-                              <PipelinePhase href="/verify" label="Research" done={hasResearch} icon={Search} color="yellow" />
-                              <PipelinePhase href="/verify" label="Stress" done={!!stressReport} icon={Flame} color="red" severity={severity} />
-                              <PipelinePhase href="/shape" label="Shape" done={shaped} icon={FileText} color="blue" />
-                              <PipelinePhase href="/blueprint" label="Architect" done={blueprinted} icon={Code2} color="purple" />
+                              <PipelinePhase href={`/verify?idea=${s.id}`} label="Research" done={hasResearch} icon={Search} color="yellow" tag={confidence?.slice(0, 3) ?? null} />
+                              <PipelinePhase href={`/verify?idea=${s.id}&tab=stress-test`} label="Stress Test" done={!!stressReport} icon={Flame} color="red" tag={severity?.slice(0, 3) ?? null} />
+                              <PipelinePhase href={`/shape?idea=${s.id}`} label="Shape" done={shaped} icon={FileText} color="blue" />
+                              <PipelinePhase href={`/blueprint?idea=${s.id}`} label="Architect" done={blueprinted} icon={Code2} color="purple" />
                             </div>
                           </div>
                         </div>
@@ -458,14 +500,14 @@ function PipelinePhase({
   done,
   icon: Icon,
   color,
-  severity,
+  tag,
 }: {
   href: string;
   label: string;
   done: boolean;
   icon: typeof Search;
   color: string;
-  severity?: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null;
+  tag?: string | null;
 }) {
   const colorMap: Record<string, { done: string; pending: string }> = {
     yellow: { done: 'text-yellow-400', pending: 'text-zinc-600' },
@@ -487,7 +529,7 @@ function PipelinePhase({
         <Circle className={`w-4 h-4 ${colors.pending} group-hover:text-zinc-400 transition-colors`} />
       )}
       <span className={`text-[10px] font-mono ${done ? 'text-zinc-400' : 'text-zinc-600'} group-hover:text-zinc-300 transition-colors`}>
-        {severity && done ? severity.slice(0, 3) : label}
+        {tag && done ? tag : label}
       </span>
     </Link>
   );
@@ -512,7 +554,7 @@ function LifetimeStats({
     { label: 'Mined', value: ideasMined, icon: Lightbulb, color: 'text-orange-400', bar: 'bg-orange-500' },
     { label: 'Survived', value: survivors, icon: Trophy, color: 'text-emerald-400', bar: 'bg-emerald-500' },
     { label: 'Researched', value: verified, icon: Search, color: 'text-yellow-400', bar: 'bg-yellow-500' },
-    { label: 'Stressed', value: stressTested, icon: Flame, color: 'text-red-400', bar: 'bg-red-500' },
+    { label: 'Stress Tested', value: stressTested, icon: Flame, color: 'text-red-400', bar: 'bg-red-500' },
     { label: 'PRDs', value: prds, icon: FileText, color: 'text-blue-400', bar: 'bg-blue-500' },
     { label: 'Blueprints', value: blueprints, icon: Code2, color: 'text-purple-400', bar: 'bg-purple-500' },
   ];

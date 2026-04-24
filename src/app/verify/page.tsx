@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +20,12 @@ import { usePhaseRun, getPhaseRun } from '@/lib/phase-status';
 type VerifyTab = 'research' | 'stress-test';
 
 export default function VerifyPage() {
+  return <Suspense><VerifyPageInner /></Suspense>;
+}
+
+function VerifyPageInner() {
   const { session, update, ready } = useSession();
+  const searchParams = useSearchParams();
   const [selectedIdea, setSelectedIdea] = useState<IdeaResult | null>(null);
   const [customIdea, setCustomIdea] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
@@ -36,12 +42,23 @@ export default function VerifyPage() {
       if (idea) {
         setSelectedIdea(idea);
         setActiveTab('research');
+        return;
       }
     } else if (stRun?.isRunning) {
       const idea = session.survivors.find(s => s.id === stRun.ideaId);
       if (idea) {
         setSelectedIdea(idea);
         setActiveTab('stress-test');
+        return;
+      }
+    }
+    const ideaParam = searchParams.get('idea');
+    if (ideaParam) {
+      const idea = session.survivors.find(s => s.id === ideaParam);
+      if (idea) {
+        setSelectedIdea(idea);
+        const tabParam = searchParams.get('tab');
+        if (tabParam === 'stress-test') setActiveTab('stress-test');
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -220,6 +237,8 @@ export default function VerifyPage() {
                   {survivors.map((idea) => {
                     const hasResearch = !!session.verifications[idea.id];
                     const hasStressTest = !!session.stressTests[idea.id];
+                    const hasPRD = !!session.prds[idea.id];
+                    const hasBlueprint = !!session.blueprints[idea.id];
                     const isStrongInvest = idea.verdict === 'STRONG_INVEST';
                     return (
                       <Card
@@ -260,8 +279,10 @@ export default function VerifyPage() {
                                 Testing...
                               </Badge>
                             )}
-                            {hasResearch && <Badge className="bg-yellow-600 text-white text-xs">Researched</Badge>}
-                            {hasStressTest && <Badge className="bg-red-600 text-white text-xs">Stress Tested</Badge>}
+                            {hasResearch && <Badge variant="outline" className="text-yellow-400 border-yellow-400/50 text-xs">Researched</Badge>}
+                            {hasStressTest && <Badge variant="outline" className="text-red-400 border-red-400/50 text-xs">Stress Tested</Badge>}
+                            {hasPRD && <Badge variant="outline" className="text-blue-400 border-blue-400/50 text-xs">PRD</Badge>}
+                            {hasBlueprint && <Badge variant="outline" className="text-purple-400 border-purple-400/50 text-xs">Blueprint</Badge>}
                             {idea.verdict && (
                               <Badge className={`${isStrongInvest ? 'bg-emerald-600' : 'bg-emerald-700'} text-white text-xs`}>
                                 {isStrongInvest ? 'Strong Invest' : 'Invest'}

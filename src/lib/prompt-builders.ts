@@ -128,6 +128,7 @@ export function buildVerifyPrompt(opts: {
     section("Idea to Validate", opts.ideaMarkdown),
     sectionOrMarker("VC Partner Memo", opts.vcMemo, "No VC partner memo available for this idea."),
     `Produce a Market Research report per your Output Contract. Use web search for competitor and market size claims. Cite sources with dates. Label proxy reasoning explicitly.`,
+    `CRITICAL: Your first line after the title MUST be a \`**Market Confidence: STRONG|MODERATE|WEAK|INSUFFICIENT**\` rating line followed by a one-sentence synthesis. The UI parses this line — do not omit it.`,
     `Market size numbers and competitor status must be current as of today's date. Prefer sources dated within the last 18 months; flag any older figure as a proxy.`,
     `The Timing Verdict must be exactly one of: TOO_EARLY | JUST_RIGHT | SATURATED | TAR_PIT.`,
   ].join("\n");

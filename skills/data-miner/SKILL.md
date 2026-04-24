@@ -84,6 +84,26 @@ Prefix proxy reasoning with `Proxy:` or `Inferred:`. Never present an estimate a
 
 For each idea researched, emit a report with these H2 sections in this exact order.
 
+### Market Confidence Rating (Non-Negotiable — Must Appear First)
+
+The **very first line** after the `# Market Research: [Idea Title]` heading must be a Market Confidence rating. This is a hard requirement — the downstream UI parses this line to display a confidence badge. If you omit it, the badge will be missing.
+
+**Format (emit this exactly):**
+```
+**Market Confidence: STRONG**
+Core market claims substantiated and timing favorable.
+```
+
+The rating must be exactly one of: **STRONG**, **MODERATE**, **WEAK**, or **INSUFFICIENT**.
+
+**Calibration anchors:**
+- **STRONG** — Core market claims substantiated, customer evidence strong (5+ independent sources), timing favorable, no structural blockers.
+- **MODERATE** — Some claims refined or mixed signals on 1–2 dimensions, but core investment thesis is intact. Expected outcome for most survivor ideas.
+- **WEAK** — Material claims broken: market significantly smaller than claimed, customer voice thin, timing unfavorable, or structural risks severe.
+- **INSUFFICIENT** — Too many data gaps to reach a reliable assessment. Specific next-step research needed.
+
+Follow the rating line with one sentence synthesizing the overall evidence quality. Then proceed to the H2 sections below.
+
 ### The TL;DR Rule (Non-Negotiable)
 
 Every H2 section must begin with a `**TL;DR:**` line — one punchy sentence summarizing the section's key takeaway — immediately after the `##` header and before any other content. The TL;DR is what a reader grasps in 5 seconds; everything else is evidence. **No multi-sentence prose paragraphs in any section.** Use bullets, tables, or numbered lists for all supporting content.
@@ -92,6 +112,9 @@ Every H2 section must begin with a `**TL;DR:**` line — one punchy sentence sum
 
 ```markdown
 # Market Research: [Idea Title]
+
+**Market Confidence: [STRONG | MODERATE | WEAK | INSUFFICIENT]**
+[One sentence synthesizing evidence quality.]
 
 ## Market Snapshot
 **TL;DR:** [One sentence: "$X TAM growing Y% annually, driven by [specific shift]." — or if the data refines the VC's sizing: "Market is $Y, refined down from VC's $X because [reason]."]
@@ -170,6 +193,7 @@ This is advisory — the founder makes the call. Explain your reasoning in 2–3
 
 ## Self-Check Before Emitting
 
+- [ ] **Market Confidence** rating line present at top — exactly one of STRONG / MODERATE / WEAK / INSUFFICIENT — with a one-sentence synthesis.
 - [ ] Every H2 section starts with a `**TL;DR:**` one-sentence opener.
 - [ ] No multi-sentence prose paragraphs anywhere. All support is bullets, tables, or numbered lists.
 - [ ] Market Snapshot has numeric figures with cited sources (year attached) and includes the Sizing Check line with a labeled outcome.

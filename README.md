@@ -43,13 +43,27 @@ Open [http://localhost:3000](http://localhost:3000). Select your preferred model
 | Phase | What Happens |
 |-------|-------------|
 | **Intake** | Conversational interview extracts your founder profile, then distills it into a structured Founder Thesis |
-| **Mine** | The Futurist generates 3 startup ideas per batch; the VC Partner writes investment memos and filters survivors |
-| **Verify** | The Data Miner researches market size, competitors, and customer evidence for each survivor |
+| **Mine** | The Futurist generates 3 startup ideas per batch; the VC Partner writes investment memos with 4-dimension scoring (Moat, Founder Fit, Market Timing, Distribution Edge) and filters survivors |
+| **Verify** | Two lenses per survivor — **Market Research** (Data Miner validates market size, competitors, customer evidence; emits a Market Confidence rating) and **Stress Test** (Devil's Advocate finds the strongest failure modes; emits a severity rating) |
 | **Shape** | The Product Manager produces a lean PRD with user journey, metrics, and launch checklist |
 | **Architect** | The CTO creates a technical blueprint — stack, data model, API design, implementation phases |
 | **Synthesize** | Rolls up all artifacts into an investor brief or build packet |
 
 All session data is stored in your browser's localStorage. Use the toolbar to export/import sessions as JSON.
+
+## Scoring & Confidence
+
+Ideas accumulate structured signals as they move through the pipeline:
+
+| Signal | Source | Values |
+|--------|--------|--------|
+| **Verdict** | VC Partner (Mine) | STRONG_INVEST, INVEST, SOFT_PASS, STRONG_PASS |
+| **4-Dimension Scores** | VC Partner (Mine) | Moat, Founder Fit, Market Timing, Distribution Edge (1-10 each) |
+| **Market Confidence** | Data Miner (Verify) | STRONG, MODERATE, WEAK, INSUFFICIENT |
+| **Stress Severity** | Stress Tester (Verify) | CRITICAL, HIGH, MODERATE, LOW |
+| **Composite Health** | Dashboard (derived) | High Confidence, Promising, Caution, At Risk |
+
+The **Composite Health** badge appears on the dashboard after at least one diligence phase completes. It combines the VC scores, market confidence adjustment, and stress severity adjustment into a single post-diligence confidence signal — displayed alongside the original VC verdict so the user sees both the initial call and where the idea stands after research.
 
 ## Stack
 
