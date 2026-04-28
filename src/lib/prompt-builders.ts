@@ -50,15 +50,31 @@ export function buildIntakeFirstTurn(): string {
   ].join("\n\n");
 }
 
-export function buildGeneratePrompt(opts: { userContext: string; batchNumber: number }): string {
-  return [
+export function buildGeneratePrompt(opts: {
+  userContext: string;
+  batchNumber: number;
+  priorIdeas?: string[];
+}): string {
+  const parts = [
     temporalAnchor(),
     section("Founder Context", opts.userContext),
+  ];
+
+  if (opts.priorIdeas && opts.priorIdeas.length > 0) {
+    parts.push(section(
+      "Previously Generated Ideas (DO NOT REPEAT)",
+      `The following ideas have already been generated in earlier batches. **Do not regenerate these or close variants.** Each new idea must attack a fundamentally different problem, customer persona, or industry vertical.\n\n${opts.priorIdeas.map((t, i) => `${i + 1}. ${t}`).join("\n")}`,
+    ));
+  }
+
+  parts.push(
     `Generate exactly 3 startup ideas for Batch #${opts.batchNumber}.`,
     `Use your Output Contract — ideas must be headed \`## IDEA ${opts.batchNumber}.1:\`, \`## IDEA ${opts.batchNumber}.2:\`, \`## IDEA ${opts.batchNumber}.3:\`.`,
     `Enforce the Founder-Market Fit rule strictly. At least 2 of 3 ideas must exploit an Unfair Advantage from the context.`,
     `Each **Why Now** must cite a specific technological or market shift that is true **as of today's date above** — not a 2023/2024 framing. If a model/API/regulation you want to cite may predate today, pick a more recent enabler or acknowledge your uncertainty.`,
-  ].join("\n");
+  );
+
+  return parts.join("\n");
 }
 
 export function buildDevelopPrompt(opts: {

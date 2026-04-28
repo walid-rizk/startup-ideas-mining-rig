@@ -496,7 +496,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     });
   };
 
-  const runBatch = async (batchNumber: number): Promise<IdeaResult[]> => {
+  const runBatch = async (batchNumber: number, priorIdeas?: string[]): Promise<IdeaResult[]> => {
     setPhase('generating');
     setMiningStatus({ phase: 'generating' });
     setGeneratedIdeas('');
@@ -504,7 +504,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     const generateResponse = await fetch('/api/mining/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userContext, batchNumber, modelChoice }),
+      body: JSON.stringify({ userContext, batchNumber, modelChoice, priorIdeas }),
       signal: abortControllerRef.current?.signal,
     });
 
@@ -547,6 +547,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     try {
       let currentSurvivors: IdeaResult[] = [...survivors];
       let allBatchIdeas: IdeaResult[] = [...allIdeas];
+      const discardedTitles = (externalDiscarded ?? []).map(i => i.title).filter(Boolean);
       const priorSurvivorCount = currentSurvivors.length;
       let batch = 1;
 
@@ -554,7 +555,11 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         setCurrentBatch(batch);
         setMiningStatus({ currentBatch: batch });
 
-        const batchResults = await runBatch(batch);
+        const priorTitles = [
+          ...discardedTitles,
+          ...allBatchIdeas.map(i => i.title).filter(Boolean),
+        ];
+        const batchResults = await runBatch(batch, priorTitles.length > 0 ? priorTitles : undefined);
 
         // Update all ideas
         allBatchIdeas = [...allBatchIdeas, ...batchResults];
@@ -1219,7 +1224,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                     <XCircle className="w-6 h-6 text-red-400 shrink-0" />
                   )}
                   <div className="min-w-0">
-                    <h2 className="font-mono text-lg text-zinc-100 truncate">{selectedIdea.title}</h2>
+                    <h2 className="font-mono text-lg text-zinc-100">{selectedIdea.title}</h2>
                     {selectedIdea.verdict && (
                       <Badge className={`${VERDICT_CONFIG[selectedIdea.verdict]?.bgColor} text-white text-xs mt-0.5`}>
                         {VERDICT_CONFIG[selectedIdea.verdict]?.label}

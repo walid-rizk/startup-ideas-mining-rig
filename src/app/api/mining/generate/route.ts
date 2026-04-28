@@ -6,10 +6,11 @@ import type { ModelChoice } from "@/lib/types";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userContext, batchNumber = 1, modelChoice } = (await req.json()) as {
+  const { userContext, batchNumber = 1, modelChoice, priorIdeas } = (await req.json()) as {
     userContext?: string;
     batchNumber?: number;
     modelChoice?: ModelChoice;
+    priorIdeas?: string[];
   };
 
   if (!userContext) {
@@ -22,6 +23,6 @@ export async function POST(req: Request) {
   return streamSkill({
     skill: "futurist",
     model: modelChoice ?? DEFAULT_MODEL,
-    userMessage: buildGeneratePrompt({ userContext, batchNumber }),
+    userMessage: buildGeneratePrompt({ userContext, batchNumber, priorIdeas }),
   });
 }

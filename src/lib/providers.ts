@@ -23,8 +23,7 @@ function resolveModel(choice: ModelChoice) {
         "GOOGLE_GENERATIVE_AI_API_KEY is not set. Add it to .env.local or choose an Anthropic model.",
       );
     }
-    const modelOpts: Record<string, unknown> = {};
-    return google(choice.model, modelOpts);
+    return google(choice.model);
   }
   if (choice.provider === "openai") {
     if (!process.env.OPENAI_API_KEY) {
@@ -74,9 +73,7 @@ export async function streamSkill(opts: StreamSkillOptions): Promise<Response> {
       : skill.systemPrompt;
 
     const result = await streamText({
-      // Provider package versions are not all in lockstep; their exported LanguageModel
-      // types drift. Runtime is compatible; suppress the type-only mismatch.
-      model: model as Parameters<typeof streamText>[0]["model"],
+      model,
       system: systemPrompt,
       messages,
       temperature: opts.temperature ?? 0.8,

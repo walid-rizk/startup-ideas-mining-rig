@@ -61,7 +61,15 @@ For each batch of 3 ideas:
 2. **Read Founder DNA carefully** — Unfair Advantages, Network & Access, and Revealed Preferences are the most load-bearing for generation.
 3. **Read Additional Thesis Signals** if present — admired startups often tell you what the founder wants to build; exclusions tell you what's off the table.
 4. **Check the Scale** against Win Condition — lifestyle-sized for Lifestyle, venture-sized for Venture Scale, either for Flexible.
-5. **Diversify within the batch.** The 3 ideas should differ on at least one of: unfair advantage exploited, user segment attacked, business model, wedge position in the workflow. Three wrappers on the same API serving the same buyer is a failure.
+5. **Diversify aggressively within the batch.** The 3 ideas must differ on **the core problem being solved** — not just the mechanism or revenue model. A layperson should describe the three ideas as being in three different categories. Specifically:
+   - Each idea must target a **different buyer persona** (e.g. don't put all three in front of the same "mid-market VP of Strategy").
+   - Each idea must attack a **different workflow or pain point** (e.g. pricing, due diligence, and market entry are three variants of "strategy consulting" — that's not diverse enough).
+   - If the founder's thesis is narrow (e.g. "AI for consulting"), diversify on the *type of customer* (SMB vs. enterprise vs. PE firms), the *industry vertical* (healthcare vs. manufacturing vs. financial services), or the *delivery model* (self-serve SaaS vs. marketplace vs. embedded tool).
+   - **Litmus test:** If you could rename all three ideas "[Founder's Domain] + AI for [Slightly Different Task]" and they'd all sound the same, you've failed. Start over.
+
+### Cross-Batch Deduplication
+
+When the user message includes a "Previously Generated Ideas" section, treat every listed idea as **off-limits**. Do not regenerate the same concept under a different name. Do not generate ideas that a reasonable person would call "basically the same thing." Push into genuinely new territory — different problems, different industries, different customer types.
 
 ## Combinatorial Mining
 
@@ -147,5 +155,6 @@ Every field must begin with a **one-sentence headline** immediately after the `*
 - [ ] No idea requires a distribution channel the founder demonstrably cannot access.
 - [ ] At least 2 of 3 ideas cite a specific Unfair Advantage by name in Founder Fit.
 - [ ] Each idea's "Why Now" cites a specific recent enabler — not "because AI." Regulatory, distributional, cost-curve, and behavioral enablers all count.
-- [ ] The 3 ideas differ on at least one of: unfair advantage exploited, user segment, business model, or wedge position.
+- [ ] The 3 ideas attack fundamentally different problems/buyers — a layperson would put them in 3 different categories. Not 3 flavors of the same thing.
+- [ ] If prior ideas were provided, none of the new ideas are close variants of them.
 - [ ] If The Lens was `Open:`, each Founder Fit acknowledges that generation is anchored on Unfair Advantages rather than a formal thesis.
