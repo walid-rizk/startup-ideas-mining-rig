@@ -146,6 +146,7 @@ function BlueprintPageInner() {
                     const hasPRD = !!session.prds[idea.id];
                     const hasBlueprint = !!session.blueprints[idea.id];
                     const isStrongInvest = idea.verdict === 'STRONG_INVEST';
+                    const isPromoted = idea.promoted && idea.verdict === 'SOFT_PASS';
                     return (
                       <Card
                         key={idea.id}
@@ -153,17 +154,19 @@ function BlueprintPageInner() {
                         className={`p-4 cursor-pointer transition-all hover:scale-[1.01] ${
                           isStrongInvest
                             ? 'bg-emerald-900/20 border-emerald-700/50 hover:border-emerald-500'
-                            : 'bg-zinc-900 border-zinc-800 hover:border-zinc-600'
+                            : isPromoted
+                              ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-600'
+                              : 'bg-emerald-900/10 border-emerald-800/40 hover:border-emerald-600'
                         }`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div
                               className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                                isStrongInvest ? 'bg-emerald-500/20' : 'bg-zinc-800'
+                                isStrongInvest ? 'bg-emerald-500/20' : isPromoted ? 'bg-zinc-800' : 'bg-emerald-500/10'
                               }`}
                             >
-                              <Trophy className={`w-5 h-5 ${isStrongInvest ? 'text-emerald-300' : 'text-zinc-400'}`} />
+                              <Trophy className={`w-5 h-5 ${isStrongInvest ? 'text-emerald-300' : isPromoted ? 'text-zinc-400' : 'text-emerald-400'}`} />
                             </div>
                             <div>
                               <h4 className="font-semibold text-zinc-100">{idea.title}</h4>
@@ -182,10 +185,12 @@ function BlueprintPageInner() {
                                 Architecting...
                               </Badge>
                             )}
-                            {hasBlueprint && <Badge className="bg-purple-600 text-white text-xs">Blueprinted</Badge>}
+                            {hasBlueprint && <Badge variant="outline" className="text-purple-400 border-purple-400/50 text-xs">Blueprint</Badge>}
                             {idea.verdict && (
-                              <Badge className={`${isStrongInvest ? 'bg-emerald-600' : 'bg-emerald-700'} text-white text-xs`}>
-                                {isStrongInvest ? 'Strong Invest' : 'Invest'}
+                              <Badge className={`${
+                                isPromoted ? 'bg-amber-700' : isStrongInvest ? 'bg-emerald-600' : 'bg-emerald-700'
+                              } text-white text-xs`}>
+                                {isPromoted ? 'Soft Pass' : isStrongInvest ? 'Strong Invest' : 'Invest'}
                               </Badge>
                             )}
                             <ChevronRight className="w-5 h-5 text-zinc-500" />
@@ -237,6 +242,15 @@ function BlueprintPageInner() {
             </div>
           </div>
         )}
+
+        <div className="max-w-4xl mx-auto flex justify-end mt-6">
+          <Link href="/synthesize">
+            <Button variant="outline" className="font-mono text-sm border-emerald-500/40 text-emerald-400 hover:text-emerald-300 hover:border-emerald-400 hover:bg-emerald-500/10">
+              Next: Synthesize
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </Link>
+        </div>
       </main>
 
       <footer className="border-t border-zinc-800 px-6 py-3">

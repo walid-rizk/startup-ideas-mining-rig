@@ -26,6 +26,7 @@ const ideaResultSchema: z.ZodType<IdeaResult> = z.object({
   batchNumber: z.number(),
   verdict: verdictSchema.optional(),
   pinned: z.boolean().optional(),
+  promoted: z.boolean().optional(),
   moatScore: z.number().optional(),
   founderFitScore: z.number().optional(),
   marketTimingScore: z.number().optional(),

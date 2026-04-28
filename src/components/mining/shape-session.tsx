@@ -399,7 +399,7 @@ ${bodyHtml}
                 disabled={isShaping}
               >
                 <FileText className="w-4 h-4 mr-2" />
-                CREATE PRD
+                {initialPrd ? 'REGENERATE PRD' : 'CREATE PRD'}
               </Button>
             ) : (
               <Button
@@ -462,7 +462,7 @@ ${bodyHtml}
           >
             {prdOutput || (
               <span className="text-zinc-600">
-                Click "Create PRD" to begin shaping the product...
+                Click &quot;{initialPrd ? 'Regenerate PRD' : 'Create PRD'}&quot; to begin shaping the product...
               </span>
             )}
           </div>

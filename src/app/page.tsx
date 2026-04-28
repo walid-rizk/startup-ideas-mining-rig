@@ -7,7 +7,6 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
-import { getVerdictRank } from '@/lib/session';
 import type { IdeaResult as PublicIdeaResult } from '@/lib/types';
 import { renderMarkdownBlock } from '@/lib/markdown-render';
 import {
@@ -44,50 +43,71 @@ function parseMarketConfidence(report: string | undefined): 'STRONG' | 'MODERATE
   return match ? (match[1].toUpperCase() as 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT') : null;
 }
 
-type HealthLevel = 'HIGH_CONFIDENCE' | 'PROMISING' | 'CAUTION' | 'AT_RISK';
 
-const HEALTH_STYLES: Record<HealthLevel, { text: string; bg: string; border: string }> = {
-  HIGH_CONFIDENCE: { text: 'text-emerald-300', bg: 'bg-emerald-500/20', border: 'border-emerald-500/30' },
-  PROMISING:       { text: 'text-cyan-300', bg: 'bg-cyan-500/20', border: 'border-cyan-500/30' },
-  CAUTION:         { text: 'text-amber-300', bg: 'bg-amber-500/20', border: 'border-amber-500/30' },
-  AT_RISK:         { text: 'text-red-300', bg: 'bg-red-500/20', border: 'border-red-500/30' },
-};
-
-function computeIdeaHealth(
+function computeIdeaScore(
   idea: PublicIdeaResult,
   marketConfidence: 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT' | null,
   stressSeverity: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null,
-): { level: HealthLevel; label: string } | null {
+): { score: number; preliminary: boolean } | null {
   const scores = [idea.moatScore, idea.founderFitScore, idea.marketTimingScore, idea.distributionEdgeScore]
     .filter((s): s is number => s != null && s > 0);
-
-  if (!marketConfidence && !stressSeverity) return null;
   if (scores.length === 0) return null;
 
   let score = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const hasMarket = marketConfidence != null;
+  const hasStress = stressSeverity != null;
 
-  if (marketConfidence) {
+  if (hasMarket) {
     const adj: Record<string, number> = { STRONG: 1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5 };
     score += adj[marketConfidence];
   }
-
-  if (stressSeverity) {
+  if (hasStress) {
     const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: 0.5 };
     score += adj[stressSeverity];
   }
 
-  score = Math.max(0, Math.min(10, score));
+  const preliminary = !hasMarket && !hasStress;
+  if (preliminary) {
+    score = score * 0.7;
+  }
 
-  if (score >= 8) return { level: 'HIGH_CONFIDENCE', label: 'High Confidence' };
-  if (score >= 6) return { level: 'PROMISING', label: 'Promising' };
-  if (score >= 4) return { level: 'CAUTION', label: 'Caution' };
-  return { level: 'AT_RISK', label: 'At Risk' };
+  return { score: Math.round(Math.max(0, Math.min(10, score)) * 10) / 10, preliminary };
+}
+
+function scoreColor(score: number): string {
+  if (score >= 8) return 'text-emerald-400';
+  if (score >= 6) return 'text-cyan-400';
+  if (score >= 4) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+function scoreBorderColor(score: number): string {
+  if (score >= 8) return 'border-emerald-500/40';
+  if (score >= 6) return 'border-cyan-500/40';
+  if (score >= 4) return 'border-amber-500/40';
+  return 'border-red-500/40';
+}
+
+function scoreBgColor(score: number): string {
+  if (score >= 8) return 'bg-emerald-500/10';
+  if (score >= 6) return 'bg-cyan-500/10';
+  if (score >= 4) return 'bg-amber-500/10';
+  return 'bg-red-500/10';
+}
+
+function extractFirstSentences(text: string | undefined, count: number): string {
+  if (!text) return '';
+  const cleaned = text.replace(/\*\*/g, '').replace(/#+\s*/g, '').trim();
+  const sentences = cleaned.match(/[^.!?]+[.!?]+/g);
+  if (!sentences) return cleaned.slice(0, 150);
+  return sentences.slice(0, count).join(' ').trim();
 }
 
 export default function Home() {
   const { session, update, ready } = useSession();
   const [showFullContext, setShowFullContext] = useState(false);
   const [showDiscarded, setShowDiscarded] = useState(false);
+  const [expandedSurvivor, setExpandedSurvivor] = useState<string | null>(null);
   if (!ready) return null;
 
   const discardIdea = (idea: PublicIdeaResult) => {
@@ -108,7 +128,7 @@ export default function Home() {
   const restoreIdea = (idea: PublicIdeaResult) => {
     update((prev) => ({
       discardedIdeas: prev.discardedIdeas.filter((d) => d.id !== idea.id),
-      survivors: idea.verdict === 'STRONG_INVEST' || idea.verdict === 'INVEST'
+      survivors: idea.verdict === 'STRONG_INVEST' || idea.verdict === 'INVEST' || idea.promoted
         ? [...prev.survivors, idea]
         : prev.survivors,
       allIdeas: [...prev.allIdeas, idea],
@@ -138,11 +158,14 @@ export default function Home() {
 
   const hasIntake = session.founderContext.trim().length > 0;
   const hasThesis = !!session.thesis && session.thesis.trim().length > 0;
-  const survivors = [...session.survivors].sort(
-    (a, b) =>
-      (a.verdict ? getVerdictRank(a.verdict) : 99) -
-      (b.verdict ? getVerdictRank(b.verdict) : 99),
-  );
+  const scoredSurvivors = session.survivors.map((s) => {
+    const conf = parseMarketConfidence(session.verifications[s.id]);
+    const sev = parseStressSeverity(session.stressTests[s.id]);
+    return { idea: s, computed: computeIdeaScore(s, conf, sev) };
+  });
+  const survivors = scoredSurvivors
+    .sort((a, b) => (b.computed?.score ?? -1) - (a.computed?.score ?? -1))
+    .map((s) => s.idea);
 
   const verifiedCount = survivors.filter((s) => !!session.verifications[s.id]).length;
   const stressTestedCount = survivors.filter((s) => !!session.stressTests[s.id]).length;
@@ -239,7 +262,7 @@ export default function Home() {
                   ideasMined={session.allIdeas.length + session.discardedIdeas.length}
                   survivors={
                     [...session.allIdeas, ...session.discardedIdeas].filter(
-                      (i) => i.verdict === 'STRONG_INVEST' || i.verdict === 'INVEST',
+                      (i) => i.verdict === 'STRONG_INVEST' || i.verdict === 'INVEST' || i.promoted,
                     ).length
                   }
                   verified={Object.keys(session.verifications).length}
@@ -291,10 +314,12 @@ export default function Home() {
                       const confidence = parseMarketConfidence(verificationReport);
                       const stressReport = session.stressTests[s.id];
                       const severity = parseStressSeverity(stressReport);
-                      const health = computeIdeaHealth(s, confidence, severity);
+                      const ideaScoreResult = computeIdeaScore(s, confidence, severity);
                       const shaped = !!session.prds[s.id];
                       const blueprinted = !!session.blueprints[s.id];
                       const isStrong = s.verdict === 'STRONG_INVEST';
+                      const isPromoted = s.promoted && s.verdict === 'SOFT_PASS';
+                      const isExpanded = expandedSurvivor === s.id;
 
                       const scores = [
                         { label: 'Moat', value: s.moatScore ?? 0 },
@@ -306,33 +331,50 @@ export default function Home() {
                       return (
                         <div
                           key={s.id}
-                          className={`rounded-lg border px-4 py-3 transition-colors ${
+                          className={`rounded-lg border px-4 py-3 transition-colors cursor-pointer ${
                             isStrong
                               ? 'bg-emerald-900/10 border-emerald-800/50'
-                              : 'bg-zinc-950 border-zinc-800'
+                              : isPromoted
+                                ? 'bg-zinc-950 border-zinc-800'
+                                : 'bg-emerald-900/5 border-emerald-800/30'
                           }`}
+                          onClick={() => setExpandedSurvivor(isExpanded ? null : s.id)}
                         >
-                          {/* Top row: title + verdict + actions */}
+                          {/* Top row: score + title + verdict + actions */}
                           <div className="flex items-start justify-between gap-3 mb-2">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm text-zinc-200 font-medium truncate">{s.title}</span>
-                                <Badge className={`text-[10px] whitespace-nowrap shrink-0 ${isStrong ? 'bg-emerald-600' : 'bg-emerald-700'} text-white`}>
-                                  {isStrong ? 'STRONG INVEST' : 'INVEST'}
-                                </Badge>
-                                {health && (
-                                  <Badge className={`text-[10px] whitespace-nowrap shrink-0 border ${HEALTH_STYLES[health.level].bg} ${HEALTH_STYLES[health.level].border} ${HEALTH_STYLES[health.level].text}`}>
-                                    {health.label}
+                            <div className="flex items-start gap-3 min-w-0 flex-1">
+                              {/* Idea Score */}
+                              {ideaScoreResult != null ? (
+                                <div className={`shrink-0 w-11 h-11 rounded-lg border flex flex-col items-center justify-center ${ideaScoreResult.preliminary ? 'bg-zinc-800/50 border-zinc-700' : `${scoreBgColor(ideaScoreResult.score)} ${scoreBorderColor(ideaScoreResult.score)}`}`}>
+                                  <span className={`text-base font-bold font-mono leading-none ${ideaScoreResult.preliminary ? 'text-zinc-400' : scoreColor(ideaScoreResult.score)}`}>
+                                    {ideaScoreResult.preliminary ? '~' : ''}{ideaScoreResult.score}
+                                  </span>
+                                  <span className="text-[7px] text-zinc-500 font-mono leading-none mt-0.5">
+                                    {ideaScoreResult.preliminary ? 'EST' : 'SCORE'}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="shrink-0 w-11 h-11 rounded-lg border border-zinc-800 bg-zinc-900 flex flex-col items-center justify-center">
+                                  <span className="text-[9px] text-zinc-600 font-mono">—</span>
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-zinc-200 font-medium truncate">{s.title}</span>
+                                  <Badge className={`text-[10px] whitespace-nowrap shrink-0 ${
+                                    isPromoted ? 'bg-amber-700' : isStrong ? 'bg-emerald-600' : 'bg-emerald-700'
+                                  } text-white`}>
+                                    {isPromoted ? 'SOFT PASS' : isStrong ? 'STRONG INVEST' : 'INVEST'}
                                   </Badge>
+                                </div>
+                                {s.oneLiner && (
+                                  <div className="text-xs text-zinc-500 truncate italic mt-0.5">&quot;{s.oneLiner}&quot;</div>
                                 )}
                               </div>
-                              {s.oneLiner && (
-                                <div className="text-xs text-zinc-500 truncate italic mt-0.5">&quot;{s.oneLiner}&quot;</div>
-                              )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                               <button
-                                onClick={() => togglePin(s)}
+                                onClick={(e) => { e.stopPropagation(); togglePin(s); }}
                                 className={`p-1 rounded transition-colors ${
                                   s.pinned
                                     ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-400/10'
@@ -343,12 +385,17 @@ export default function Home() {
                                 <Pin className={`w-3.5 h-3.5 ${s.pinned ? 'fill-current' : ''}`} />
                               </button>
                               <button
-                                onClick={() => discardIdea(s)}
+                                onClick={(e) => { e.stopPropagation(); discardIdea(s); }}
                                 className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                                 title="Discard idea"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
+                              {isExpanded ? (
+                                <ChevronUp className="w-3.5 h-3.5 text-zinc-500" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5 text-zinc-600" />
+                              )}
                             </div>
                           </div>
 
@@ -365,13 +412,74 @@ export default function Home() {
                             </div>
 
                             {/* Pipeline phases */}
-                            <div className="flex items-center gap-3 shrink-0">
+                            <div className="flex items-center gap-3 shrink-0" onClick={(e) => e.stopPropagation()}>
                               <PipelinePhase href={`/verify?idea=${s.id}`} label="Research" done={hasResearch} icon={Search} color="yellow" tag={confidence?.slice(0, 3) ?? null} />
                               <PipelinePhase href={`/verify?idea=${s.id}&tab=stress-test`} label="Stress Test" done={!!stressReport} icon={Flame} color="red" tag={severity?.slice(0, 3) ?? null} />
-                              <PipelinePhase href={`/shape?idea=${s.id}`} label="Shape" done={shaped} icon={FileText} color="blue" />
-                              <PipelinePhase href={`/blueprint?idea=${s.id}`} label="Architect" done={blueprinted} icon={Code2} color="purple" />
+                              <PipelinePhase href={`/shape?idea=${s.id}`} label="PRD" done={shaped} icon={FileText} color="blue" />
+                              <PipelinePhase href={`/blueprint?idea=${s.id}`} label="Blueprint" done={blueprinted} icon={Code2} color="purple" />
                             </div>
                           </div>
+
+                          {/* Expanded TLDR summary */}
+                          {isExpanded && (
+                            <div className="mt-3 pt-3 border-t border-zinc-800 space-y-2.5" onClick={(e) => e.stopPropagation()}>
+                              {/* VC Assessment */}
+                              {s.verdictRationale && (
+                                <TldrSection icon={Trophy} label="VC Assessment" color="text-emerald-400">
+                                  {extractFirstSentences(s.verdictRationale, 2)}
+                                </TldrSection>
+                              )}
+                              {s.bullCase && (
+                                <TldrSection icon={Sparkles} label="Bull Case" color="text-cyan-400">
+                                  {extractFirstSentences(s.bullCase, 2)}
+                                </TldrSection>
+                              )}
+                              {s.bearCase && (
+                                <TldrSection icon={Flame} label="Bear Case" color="text-amber-400">
+                                  {extractFirstSentences(s.bearCase, 2)}
+                                </TldrSection>
+                              )}
+
+                              {/* Market Research */}
+                              {hasResearch && (
+                                <TldrSection icon={Search} label={`Market Research${confidence ? ` — ${confidence}` : ''}`} color="text-yellow-400">
+                                  {extractFirstSentences(verificationReport, 2)}
+                                </TldrSection>
+                              )}
+
+                              {/* Stress Test */}
+                              {stressReport && (
+                                <TldrSection icon={Flame} label={`Stress Test${severity ? ` — ${severity}` : ''}`} color="text-red-400">
+                                  {extractFirstSentences(stressReport, 2)}
+                                </TldrSection>
+                              )}
+
+                              {/* PRD */}
+                              {shaped && (
+                                <TldrSection icon={FileText} label="PRD" color="text-blue-400">
+                                  {extractFirstSentences(session.prds[s.id], 2)}
+                                </TldrSection>
+                              )}
+
+                              {/* Blueprint */}
+                              {blueprinted && (
+                                <TldrSection icon={Code2} label="Blueprint" color="text-purple-400">
+                                  {extractFirstSentences(session.blueprints[s.id], 2)}
+                                </TldrSection>
+                              )}
+
+                              {/* Key Risks */}
+                              {s.keyRisks && (
+                                <TldrSection icon={Trash2} label="Key Risks" color="text-orange-400">
+                                  {extractFirstSentences(s.keyRisks, 2)}
+                                </TldrSection>
+                              )}
+
+                              {!s.verdictRationale && !hasResearch && !stressReport && !shaped && !blueprinted && (
+                                <p className="text-xs text-zinc-600 italic">No phase data yet — run diligence phases to see a summary here.</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -616,5 +724,17 @@ function EmptyState() {
         Or import an existing session JSON via the toolbar above.
       </p>
     </Card>
+  );
+}
+
+function TldrSection({ icon: Icon, label, color, children }: { icon: typeof Search; label: string; color: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-2">
+      <Icon className={`w-3.5 h-3.5 ${color} shrink-0 mt-0.5`} />
+      <div className="min-w-0">
+        <span className={`text-[10px] font-mono uppercase ${color}`}>{label}</span>
+        <p className="text-xs text-zinc-400 leading-relaxed">{children}</p>
+      </div>
+    </div>
   );
 }

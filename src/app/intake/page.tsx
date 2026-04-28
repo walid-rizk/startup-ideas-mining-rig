@@ -10,11 +10,10 @@ import IntakeSession from '@/components/mining/intake-session';
 import { useSession } from '@/lib/session-context';
 import { streamToText } from '@/lib/streaming';
 import { renderMarkdownBlock } from '@/lib/markdown-render';
+import Link from 'next/link';
 import {
   Terminal,
   MessageSquare,
-  ChevronDown,
-  ChevronUp,
   CheckCircle,
   Compass,
   Play,
@@ -25,23 +24,35 @@ import {
   Eye,
   FileDown,
   RotateCcw,
+  ArrowRight,
+  ArrowLeft,
+  Pickaxe,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 interface ThesisFields {
   name: string;
   coreBet: string;
+  whyNow: string;
+  whyFounder: string;
   targetMarket: string;
   customer: string;
+  ideaSurface: string[];
+  rulesOut: string;
 }
 
 function parseThesisCandidate(output: string, thesisNumber: number): ThesisFields | null {
   const num = String(thesisNumber);
   const nameMatch = output.match(new RegExp(`##\\s*Thesis\\s+${num}:\\s*(.+)`, 'i'));
   if (!nameMatch) return null;
-  const name = nameMatch[1].trim().replace(/\s*—\s*(The\s+)?(Obvious|Timing|Counter)[^]*$/i, '').trim();
+  const name = nameMatch[1].trim()
+    .replace(/\s*—\s*(The\s+)?(Grounded|Wild|Obvious|Timing|Counter)[^]*$/i, '')
+    .replace(/\*+/g, '')
+    .trim();
 
   const thesisBlock = output.match(
-    new RegExp(`##\\s*Thesis\\s+${num}:[\\s\\S]*?(?=\\n##\\s*Thesis\\s+\\d|\\n##\\s*Recommendation|$)`, 'i')
+    new RegExp(`##\\s*Thesis\\s+${num}:[\\s\\S]*?(?=\\n##\\s|$)`, 'i')
   )?.[0] ?? '';
 
   const extract = (field: string): string => {
@@ -49,19 +60,25 @@ function parseThesisCandidate(output: string, thesisNumber: number): ThesisField
     return m?.[1]?.trim().replace(/\*+/g, '').trim() ?? '';
   };
 
+  const ideaSection = thesisBlock.match(/\*\*Idea Surface:?\*\*[\s\S]*?(?=\n-\s\*\*|\n##|$)/i)?.[0] ?? '';
+  const ideas = [...ideaSection.matchAll(/^\s*[-*•]\s+(.+)/gm)].map(m => m[1].trim());
+
   return {
     name,
     coreBet: extract('Core Bet'),
+    whyNow: extract('Why Now'),
+    whyFounder: extract('Why This Founder'),
     targetMarket: extract('Target Market'),
     customer: extract('Customer'),
+    ideaSurface: ideas,
+    rulesOut: extract('Rules Out'),
   };
 }
 
-function parseRecommendedThesisFields(output: string): ThesisFields | null {
-  const recSection = output.match(/##\s*Recommendation[\s\S]*$/i)?.[0] ?? '';
-  const numMatch = recSection.match(/Thesis\s+([123])/i);
-  if (!numMatch) return null;
-  return parseThesisCandidate(output, parseInt(numMatch[1]));
+function getThesisTag(output: string, thesisNumber: number): string {
+  const num = String(thesisNumber);
+  const match = output.match(new RegExp(`##\\s*Thesis\\s+${num}:[^—\\n]*—\\s*([^\\n]+)`, 'i'));
+  return match?.[1]?.trim() ?? (thesisNumber === 1 ? 'The Grounded Pick' : 'The Wild Card');
 }
 
 function downloadMarkdown(text: string, filename: string) {
@@ -83,34 +100,38 @@ export default function IntakePage() {
   const [thesisOutput, setThesisOutput] = useState(session.thesis ?? '');
   const [thesisRunning, setThesisRunning] = useState(false);
   const [thesisError, setThesisError] = useState<string | null>(null);
-  const [chosenLens, setChosenLens] = useState('');
-  const [chosenTarget, setChosenTarget] = useState('');
-  const [chosenCustomer, setChosenCustomer] = useState('');
+  const [selectedThesis, setSelectedThesis] = useState<number | null>(null);
+  const [thesesExpanded, setThesesExpanded] = useState(false);
   const [saved, setSaved] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (session.thesis && !chosenLens) {
-      const fields = parseRecommendedThesisFields(session.thesis);
-      if (fields) {
-        setChosenLens(`${fields.name}\n\n${fields.coreBet}`);
-        setChosenTarget(fields.targetMarket);
-        setChosenCustomer(fields.customer);
-      }
+    if (session.thesis) {
+      setThesisOutput(session.thesis);
     }
+  }, [session.thesis]);
+
+  // Auto-detect which thesis was previously selected by checking Founder Context
+  useEffect(() => {
+    if (!session.thesis || selectedThesis !== null) return;
+    const t1 = parseThesisCandidate(session.thesis, 1);
+    const t2 = parseThesisCandidate(session.thesis, 2);
+    const ctx = session.founderContext;
+    if (t1 && ctx.includes(t1.coreBet)) { setSelectedThesis(1); setSaved(true); }
+    else if (t2 && ctx.includes(t2.coreBet)) { setSelectedThesis(2); setSaved(true); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.thesis]);
 
   if (!ready) return null;
 
   const hasContext = session.founderContext.trim().length > 0;
-  const hasThesis = !!session.thesis && session.thesis.trim().length > 0;
-  const isFromInterview = hasThesis && thesisOutput === session.thesis;
 
   const runThesis = async () => {
     setThesisRunning(true);
     setThesisError(null);
     setThesisOutput('');
+    setSelectedThesis(null);
+    setThesesExpanded(false);
     setSaved(false);
     abortRef.current = new AbortController();
     try {
@@ -126,12 +147,6 @@ export default function IntakePage() {
       if (!res.ok) throw new Error(`thesis-builder failed (${res.status})`);
       const full = await streamToText(res, setThesisOutput);
       update({ thesis: full });
-      const fields = parseRecommendedThesisFields(full);
-      if (fields) {
-        setChosenLens(`${fields.name}\n\n${fields.coreBet}`);
-        setChosenTarget(fields.targetMarket);
-        setChosenCustomer(fields.customer);
-      }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') setThesisError('Stopped');
       else setThesisError(err instanceof Error ? err.message : 'Thesis generation failed');
@@ -146,9 +161,7 @@ export default function IntakePage() {
     if (!window.confirm('This will clear your Founder Context, thesis, and interview history. Continue?')) return;
     update({ founderContext: '', thesis: null, intakeMessages: [] });
     setThesisOutput('');
-    setChosenLens('');
-    setChosenTarget('');
-    setChosenCustomer('');
+    setSelectedThesis(null);
     setSaved(false);
     setEditContext(false);
     setShowChat(false);
@@ -160,22 +173,30 @@ export default function IntakePage() {
     return ctx;
   };
 
-  const saveChosenThesis = () => {
-    if (!chosenLens.trim()) return;
+  const selectThesis = (num: number) => {
+    const fields = parseThesisCandidate(thesisOutput, num);
+    if (!fields) return;
+    setSelectedThesis(num);
+
     update((prev) => {
       let ctx = prev.founderContext;
       ctx = ctx.replace(/\n\n## Chosen Thesis[\s\S]*$/, '').trimEnd();
-      if (chosenTarget.trim()) {
-        ctx = replaceSectionContent(ctx, 'The Target', `Concrete: ${chosenTarget.trim()}`);
+      if (fields.targetMarket.trim()) {
+        ctx = replaceSectionContent(ctx, 'The Target', `Concrete: ${fields.targetMarket.trim()}`);
       }
-      ctx = replaceSectionContent(ctx, 'The Lens', `Concrete: ${chosenLens.trim()}`);
-      if (chosenCustomer.trim()) {
-        ctx = replaceSectionContent(ctx, 'The Customer', `Concrete: ${chosenCustomer.trim()}`);
+      ctx = replaceSectionContent(ctx, 'The Lens', `Concrete: ${fields.name}\n\n${fields.coreBet}`);
+      if (fields.customer.trim()) {
+        ctx = replaceSectionContent(ctx, 'The Customer', `Concrete: ${fields.customer.trim()}`);
       }
       return { founderContext: ctx };
     });
     setSaved(true);
   };
+
+  const thesis1 = thesisOutput ? parseThesisCandidate(thesisOutput, 1) : null;
+  const thesis2 = thesisOutput ? parseThesisCandidate(thesisOutput, 2) : null;
+  const tag1 = thesisOutput ? getThesisTag(thesisOutput, 1) : '';
+  const tag2 = thesisOutput ? getThesisTag(thesisOutput, 2) : '';
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col">
@@ -184,6 +205,24 @@ export default function IntakePage() {
       <main className="flex-1 p-6">
         {!hasContext ? (
           <div className="max-w-4xl mx-auto h-full flex items-center justify-center">
+            <IntakeSession />
+          </div>
+        ) : showChat ? (
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => setShowChat(false)}
+                variant="outline"
+                size="sm"
+                className="font-mono border-zinc-700"
+              >
+                <ArrowLeft className="w-4 h-4 mr-1" />
+                Back to Overview
+              </Button>
+              <span className="text-xs text-zinc-500 font-mono">
+                Continue the interview or ask for specific changes to your context / thesis
+              </span>
+            </div>
             <IntakeSession />
           </div>
         ) : (
@@ -210,15 +249,9 @@ export default function IntakePage() {
                     className="text-zinc-400 hover:text-zinc-100 font-mono text-xs"
                   >
                     {editContext ? (
-                      <>
-                        <Eye className="w-3.5 h-3.5 mr-1" />
-                        View
-                      </>
+                      <><Eye className="w-3.5 h-3.5 mr-1" />View</>
                     ) : (
-                      <>
-                        <Pencil className="w-3.5 h-3.5 mr-1" />
-                        Edit
-                      </>
+                      <><Pencil className="w-3.5 h-3.5 mr-1" />Edit</>
                     )}
                   </Button>
                   <Button
@@ -227,8 +260,16 @@ export default function IntakePage() {
                     onClick={() => downloadMarkdown(session.founderContext, `founder-context-${Date.now()}.md`)}
                     className="text-zinc-400 hover:text-zinc-100 font-mono text-xs"
                   >
-                    <FileDown className="w-3.5 h-3.5 mr-1" />
-                    .md
+                    <FileDown className="w-3.5 h-3.5 mr-1" />.md
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowChat(true)}
+                    className="text-zinc-400 hover:text-cyan-400 font-mono text-xs"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 mr-1" />
+                    Continue Interview
                   </Button>
                   <Button
                     variant="ghost"
@@ -236,8 +277,7 @@ export default function IntakePage() {
                     onClick={restartInterview}
                     className="text-zinc-400 hover:text-red-400 font-mono text-xs"
                   >
-                    <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                    Restart
+                    <RotateCcw className="w-3.5 h-3.5 mr-1" />Restart
                   </Button>
                 </div>
               </div>
@@ -260,38 +300,32 @@ export default function IntakePage() {
               )}
             </Card>
 
+            {/* ─── Divider ─── */}
+            <div className="relative py-2">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-zinc-700" />
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-zinc-950 px-4 text-xs font-mono text-zinc-500 uppercase tracking-wider">
+                  Thesis Selection
+                </span>
+              </div>
+            </div>
+
             {/* ─── Thesis ─── */}
             <Card className="bg-zinc-900 border-zinc-800 p-5">
-              <div className="flex items-start gap-4 mb-3">
+              <div className="flex items-start gap-4 mb-4">
                 <div className="w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center shrink-0">
                   <Compass className="w-5 h-5 text-cyan-400" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-lg font-semibold text-zinc-100">Thesis</h2>
-                    {isFromInterview && (
-                      <Badge className="bg-cyan-900/40 text-cyan-300 border border-cyan-700/50 text-xs font-mono">
-                        <Sparkles className="w-3 h-3 mr-1" />
-                        From interview
-                      </Badge>
-                    )}
-                  </div>
+                  <h2 className="text-lg font-semibold text-zinc-100">Thesis</h2>
                   <p className="text-sm text-zinc-400 mt-0.5">
-                    3 candidate theses grounded in your profile and current industry trends. Pick one — it guides every downstream skill.
+                    2 candidate theses grounded in your profile. Click one to select it — it guides every downstream skill.
+                    Or use <button onClick={() => setShowChat(true)} className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">Continue Interview</button> to describe your own and we&apos;ll sharpen it.
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  {thesisOutput && !thesisRunning && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => downloadMarkdown(thesisOutput, `thesis-${Date.now()}.md`)}
-                      className="text-zinc-400 hover:text-zinc-100 font-mono text-xs"
-                    >
-                      <FileDown className="w-3.5 h-3.5 mr-1" />
-                      .md
-                    </Button>
-                  )}
                   {!thesisRunning ? (
                     <Button
                       onClick={runThesis}
@@ -309,8 +343,7 @@ export default function IntakePage() {
                     </Button>
                   ) : (
                     <Button onClick={stopThesis} variant="destructive" className="font-mono">
-                      <Square className="w-4 h-4 mr-2" />
-                      Stop
+                      <Square className="w-4 h-4 mr-2" />Stop
                     </Button>
                   )}
                 </div>
@@ -318,106 +351,129 @@ export default function IntakePage() {
 
               {thesisError && <p className="text-xs text-red-400 font-mono mb-3">{thesisError}</p>}
 
-              <div className="bg-zinc-950 rounded-lg p-5 border border-zinc-800 min-h-[200px] max-h-[600px] overflow-y-auto">
-                {thesisOutput ? (
-                  renderMarkdownBlock(thesisOutput)
-                ) : (
-                  <span className="text-xs text-zinc-600 font-mono">
-                    {thesisRunning
-                      ? 'Generating thesis candidates...'
-                      : 'Thesis candidates will appear here. Click Generate — or they will auto-populate after your interview.'}
-                  </span>
-                )}
-              </div>
-            </Card>
+              {thesis1 || thesis2 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[
+                    { num: 1, fields: thesis1, tag: tag1 },
+                    { num: 2, fields: thesis2, tag: tag2 },
+                  ].map(({ num, fields, tag }) => {
+                    if (!fields) return null;
+                    const isSelected = selectedThesis === num;
+                    const isExpanded = thesesExpanded;
+                    return (
+                      <div
+                        key={num}
+                        className={`rounded-lg border-2 transition-all flex flex-col ${
+                          isSelected
+                            ? 'border-cyan-500 bg-cyan-900/15'
+                            : 'border-zinc-700 bg-zinc-950 hover:border-zinc-500'
+                        }`}
+                      >
+                        {/* Compact summary — always visible */}
+                        <div
+                          className="p-4 cursor-pointer flex-1"
+                          onClick={() => setThesesExpanded(!thesesExpanded)}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <Badge variant="outline" className={`text-xs font-mono ${
+                              isSelected ? 'text-cyan-400 border-cyan-400/50' : 'text-zinc-400 border-zinc-600'
+                            }`}>
+                              {tag}
+                            </Badge>
+                            <div className="flex items-center gap-1.5">
+                              {isSelected && <CheckCircle className="w-4 h-4 text-cyan-400" />}
+                              {isExpanded
+                                ? <ChevronUp className="w-4 h-4 text-zinc-500" />
+                                : <ChevronDown className="w-4 h-4 text-zinc-500" />
+                              }
+                            </div>
+                          </div>
+                          <h3 className={`font-semibold text-sm mb-1.5 ${isSelected ? 'text-cyan-100' : 'text-zinc-200'}`}>
+                            {fields.name}
+                          </h3>
+                          <p className="text-xs text-zinc-400 leading-relaxed">{fields.coreBet}</p>
+                        </div>
 
-            {/* ─── Chosen Thesis ─── */}
-            <Card className="bg-zinc-900 border-zinc-800 p-5">
-              <div className="flex items-center gap-2 mb-1">
-                <CheckCircle className={`w-4 h-4 ${saved ? 'text-emerald-400' : 'text-zinc-500'}`} />
-                <h3 className="font-mono text-sm text-zinc-200">Your Chosen Thesis</h3>
-                {saved && (
-                  <Badge className="bg-emerald-900/40 text-emerald-300 border border-emerald-700/50 text-xs ml-2">
-                    Wired into Founder Context
-                  </Badge>
-                )}
-              </div>
-              <p className="text-xs text-zinc-500 mb-4">
-                Confirming wires Target, Lens, and Customer into your Founder Context as <code className="text-zinc-400">Concrete:</code> — every downstream skill reads these.
-              </p>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-zinc-500 font-mono mb-1 block">TARGET MARKET</label>
-                  <Textarea
-                    value={chosenTarget}
-                    onChange={(e) => { setChosenTarget(e.target.value); setSaved(false); }}
-                    placeholder="e.g., Mid-market professional services firms (50–500 employees)"
-                    className="min-h-[60px] bg-zinc-950 border-zinc-700 text-zinc-300 font-mono text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-zinc-500 font-mono mb-1 block">THESIS / LENS</label>
-                  <Textarea
-                    value={chosenLens}
-                    onChange={(e) => { setChosenLens(e.target.value); setSaved(false); }}
-                    placeholder="e.g., Automating tribal knowledge in boring B2B industries via Service-as-Software"
-                    className="min-h-[80px] bg-zinc-950 border-zinc-700 text-zinc-300 font-mono text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-zinc-500 font-mono mb-1 block">CUSTOMER</label>
-                  <Textarea
-                    value={chosenCustomer}
-                    onChange={(e) => { setChosenCustomer(e.target.value); setSaved(false); }}
-                    placeholder="e.g., Operations managers who currently rely on spreadsheets and tribal knowledge"
-                    className="min-h-[60px] bg-zinc-950 border-zinc-700 text-zinc-300 font-mono text-sm"
-                  />
-                </div>
-              </div>
-              <div className="mt-3 flex justify-between items-center">
-                <span className="text-xs text-zinc-500 font-mono">
-                  {session.thesis
-                    ? saved
-                      ? 'Thesis confirmed — Target, Lens, and Customer are now Concrete.'
-                      : 'Edit above, then confirm to wire all three into your Founder Context.'
-                    : 'Generate a thesis first, then pick and confirm.'}
-                </span>
-                <Button
-                  onClick={saveChosenThesis}
-                  disabled={!chosenLens.trim() || saved}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono"
-                >
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Confirm Thesis
-                </Button>
-              </div>
-            </Card>
+                        {/* Expanded details */}
+                        {isExpanded && (
+                          <div className="px-4 pb-4 space-y-1.5 text-xs border-t border-zinc-800 pt-3">
+                            {fields.whyNow && <div><span className="text-zinc-500 font-mono">WHY NOW:</span> <span className="text-zinc-300">{fields.whyNow}</span></div>}
+                            {fields.whyFounder && <div><span className="text-zinc-500 font-mono">WHY YOU:</span> <span className="text-zinc-300">{fields.whyFounder}</span></div>}
+                            {fields.targetMarket && <div><span className="text-zinc-500 font-mono">TARGET:</span> <span className="text-zinc-300">{fields.targetMarket}</span></div>}
+                            {fields.customer && <div><span className="text-zinc-500 font-mono">CUSTOMER:</span> <span className="text-zinc-300">{fields.customer}</span></div>}
+                            {fields.rulesOut && <div><span className="text-zinc-500 font-mono">RULES OUT:</span> <span className="text-zinc-300">{fields.rulesOut}</span></div>}
+                            {fields.ideaSurface.length > 0 && (
+                              <div className="pt-1.5 border-t border-zinc-800 mt-1">
+                                <span className="text-zinc-500 font-mono">IDEA SURFACE:</span>
+                                <ul className="mt-1 space-y-0.5">
+                                  {fields.ideaSurface.map((idea, idx) => (
+                                    <li key={idx} className="text-zinc-400 flex gap-1.5">
+                                      <span className="text-zinc-600 shrink-0">▸</span>
+                                      {idea}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
-            {/* ─── Continue Interview (collapsible) ─── */}
-            <Card className="bg-zinc-900 border-zinc-800">
-              <button
-                onClick={() => setShowChat((v) => !v)}
-                className="w-full flex items-center justify-between px-5 py-3 hover:bg-zinc-900/80 transition-colors rounded-t-lg"
-              >
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-zinc-500" />
-                  <span className="font-mono text-sm text-zinc-300">Continue Interview</span>
-                  <span className="text-xs text-zinc-600 font-mono">
-                    — add more signal via chat
-                  </span>
+                        {/* Select button */}
+                        <div className="px-4 pb-3">
+                          <button
+                            onClick={() => selectThesis(num)}
+                            className={`w-full text-xs font-mono py-1.5 rounded transition-colors ${
+                              isSelected
+                                ? 'bg-cyan-600/20 text-cyan-300 cursor-default'
+                                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                            }`}
+                          >
+                            {isSelected ? 'Selected' : 'Select this thesis'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                {showChat ? (
-                  <ChevronUp className="w-4 h-4 text-zinc-500" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-zinc-500" />
-                )}
-              </button>
-              {showChat && (
-                <div className="px-5 pb-5 border-t border-zinc-800 pt-4">
-                  <IntakeSession />
+              ) : thesisRunning ? (
+                <div className="bg-zinc-950 rounded-lg p-5 border border-zinc-800 min-h-[200px] max-h-[600px] overflow-y-auto">
+                  {thesisOutput ? (
+                    renderMarkdownBlock(thesisOutput)
+                  ) : (
+                    <span className="text-xs text-zinc-600 font-mono">
+                      Generating thesis candidates...
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-zinc-950 rounded-lg p-8 border border-dashed border-zinc-800 text-center">
+                  <Sparkles className="w-6 h-6 text-zinc-600 mx-auto mb-2" />
+                  <p className="text-sm text-zinc-500 font-mono">
+                    Click Generate to create 2 thesis candidates from your Founder Context.
+                  </p>
                 </div>
               )}
+
+              {saved && selectedThesis && (
+                <p className="text-xs text-emerald-400 font-mono mt-3 flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Thesis {selectedThesis} selected — Target, Lens, and Customer wired into your Founder Context.
+                </p>
+              )}
             </Card>
+
+            {/* ─── Go to Mine ─── */}
+            {hasContext && (
+              <div className="flex justify-center pt-2">
+                <Link href="/mine">
+                  <Button className="bg-red-600 hover:bg-red-700 text-white font-mono px-8">
+                    <Pickaxe className="w-4 h-4 mr-2" />
+                    Start Mining
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </Link>
+              </div>
+            )}
           </div>
         )}
       </main>

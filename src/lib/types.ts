@@ -66,6 +66,7 @@ export interface IdeaResult {
 
   verdict?: Verdict;
   pinned?: boolean;
+  promoted?: boolean;
   moatScore?: number;
   founderFitScore?: number;
   marketTimingScore?: number;

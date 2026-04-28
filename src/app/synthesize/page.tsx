@@ -7,11 +7,44 @@ import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
 import { streamToText } from '@/lib/streaming';
 import { renderMarkdownBlock } from '@/lib/markdown-render';
-import { Package, Play, Square, Download, FileDown, Trophy, FileText, ChevronRight, Clock, ArrowLeft, Trash2 } from 'lucide-react';
+import { Package, Play, Square, Download, FileDown, Trophy, FileText, ChevronRight, Clock, ArrowLeft, Trash2, CheckCircle, Lock, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
 import type { IdeaResult, SynthesisEntry } from '@/lib/types';
 import { reconstructVcMemo } from '@/lib/prompt-builders';
 import { marked } from 'marked';
 import { usePhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, clearPhaseRun, getPhaseRun } from '@/lib/phase-status';
+
+function parseMarketConfidence(report: string | undefined): 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT' | null {
+  if (!report) return null;
+  const match = report.match(/Market Confidence[:\s*]*(?:\*\*\s*)?(STRONG|MODERATE|WEAK|INSUFFICIENT)/i);
+  return match ? (match[1].toUpperCase() as 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT') : null;
+}
+
+function parseStressSeverity(report: string | undefined): 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null {
+  if (!report) return null;
+  const match = report.match(/\*\*Overall:\s*(CRITICAL|HIGH|MODERATE|LOW)\*\*/i);
+  return match ? (match[1].toUpperCase() as 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW') : null;
+}
+
+function computeIdeaScore(
+  idea: IdeaResult,
+  marketConfidence: 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT' | null,
+  stressSeverity: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null,
+): number {
+  const scores = [idea.moatScore, idea.founderFitScore, idea.marketTimingScore, idea.distributionEdgeScore]
+    .filter((s): s is number => s != null && s > 0);
+  if (scores.length === 0) return 0;
+  let score = scores.reduce((a, b) => a + b, 0) / scores.length;
+  if (marketConfidence) {
+    const adj: Record<string, number> = { STRONG: 1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5 };
+    score += adj[marketConfidence];
+  }
+  if (stressSeverity) {
+    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: 0.5 };
+    score += adj[stressSeverity];
+  }
+  return Math.round(Math.max(0, Math.min(10, score)) * 10) / 10;
+}
 
 function survivorsToMarkdown(survivors: IdeaResult[]): string {
   return survivors
@@ -71,11 +104,6 @@ export default function SynthesizePage() {
   const prd = selected ? session.prds[selected.id] : undefined;
   const blueprint = selected ? session.blueprints[selected.id] : undefined;
 
-  const survivorIds = new Set(session.survivors.map((s) => s.id));
-  const currentVerified = Object.keys(session.verifications).filter((id) => survivorIds.has(id)).length;
-  const currentPrds = Object.keys(session.prds).filter((id) => survivorIds.has(id)).length;
-  const currentBlueprints = Object.keys(session.blueprints).filter((id) => survivorIds.has(id)).length;
-
   const viewingEntry = viewingEntryId ? session.syntheses.find((e) => e.id === viewingEntryId) : null;
   const displayOutput = viewingEntry ? viewingEntry.content : output;
 
@@ -94,12 +122,13 @@ export default function SynthesizePage() {
     if (viewingEntryId === entryId) closeEntry();
   };
 
-  const run = async () => {
+  const run = async (overrideMode?: 'build_packet' | 'investor_brief') => {
     if (session.survivors.length === 0 || !selected) return;
+    const capturedMode = overrideMode ?? mode;
+    if (overrideMode) setMode(overrideMode);
     setViewingEntryId(null);
     const ac = new AbortController();
     const capturedId = selectedId;
-    const capturedMode = mode;
     const capturedTitle = selected.title;
     const runId = startPhaseRun('synthesize', capturedId, ac, { mode: capturedMode });
     try {
@@ -210,75 +239,125 @@ ${bodyHtml}
         <div className="max-w-5xl mx-auto space-y-6">
           {/* Controls Card */}
           <Card className="bg-zinc-900 border-zinc-800 p-6">
-            <div className="flex items-start gap-4 mb-4">
+            <div className="flex items-start gap-4 mb-5">
               <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
                 <Package className="w-5 h-5 text-emerald-400" />
               </div>
               <div className="flex-1">
                 <h2 className="text-lg font-semibold text-zinc-100">Package Your Work</h2>
                 <p className="text-sm text-zinc-400">
-                  Rolls up every artifact in this session — survivors, market research, PRDs, blueprints — into a single
-                  shareable markdown document.
+                  Select a survivor that has completed all phases, then generate a Build Packet or Investor Brief.
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-              <div>
-                <label className="text-xs text-zinc-500 font-mono mb-1 block">MODE</label>
-                <select
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as 'build_packet' | 'investor_brief')}
-                  className="w-full bg-zinc-950 border border-zinc-700 text-zinc-300 rounded px-2 py-2 font-mono text-sm"
-                >
-                  <option value="build_packet">Build Packet (for yourself)</option>
-                  <option value="investor_brief">Investor Brief (for pitching)</option>
-                </select>
+            {session.survivors.length === 0 ? (
+              <div className="text-center py-6 text-sm text-zinc-500">
+                No survivors yet. Run the mining gauntlet first.
               </div>
-              <div>
-                <label className="text-xs text-zinc-500 font-mono mb-1 block">FOCUS SURVIVOR</label>
-                <select
-                  value={selectedId}
-                  onChange={(e) => setSelectedId(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-700 text-zinc-300 rounded px-2 py-2 font-mono text-sm"
-                  disabled={session.survivors.length === 0}
-                >
-                  {session.survivors.length === 0 ? (
-                    <option>(no survivors)</option>
-                  ) : (
-                    session.survivors.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.title}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-              <div className="flex items-end">
-                {!isRunning ? (
-                  <Button
-                    onClick={run}
-                    disabled={session.survivors.length === 0}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-mono"
-                  >
-                    <Play className="w-4 h-4 mr-2" />
-                    SYNTHESIZE
-                  </Button>
-                ) : (
-                  <Button onClick={stop} variant="destructive" className="w-full font-mono">
-                    <Square className="w-4 h-4 mr-2" />
-                    STOP
-                  </Button>
-                )}
-              </div>
-            </div>
+            ) : (
+              <div className="space-y-2 mb-4">
+                {[...session.survivors].sort((a, b) => {
+                  const scoreA = computeIdeaScore(a, parseMarketConfidence(session.verifications[a.id]), parseStressSeverity(session.stressTests[a.id]));
+                  const scoreB = computeIdeaScore(b, parseMarketConfidence(session.verifications[b.id]), parseStressSeverity(session.stressTests[b.id]));
+                  return scoreB - scoreA;
+                }).map((s) => {
+                  const hasResearch = !!session.verifications[s.id];
+                  const hasStress = !!session.stressTests[s.id];
+                  const hasPrd = !!session.prds[s.id];
+                  const hasBlueprint = !!session.blueprints[s.id];
+                  const isReady = hasResearch && hasStress && hasPrd && hasBlueprint;
+                  const isSelected = selectedId === s.id;
+                  const phases = [
+                    { label: 'Research', done: hasResearch },
+                    { label: 'Stress Test', done: hasStress },
+                    { label: 'PRD', done: hasPrd },
+                    { label: 'Blueprint', done: hasBlueprint },
+                  ];
 
-            <div className="flex gap-2 text-xs font-mono flex-wrap">
-              <StatusBadge label={`${session.survivors.length} survivors`} active={session.survivors.length > 0} />
-              <StatusBadge label={`${currentVerified} verified`} active={currentVerified > 0} />
-              <StatusBadge label={`${currentPrds} PRDs`} active={currentPrds > 0} />
-              <StatusBadge label={`${currentBlueprints} blueprints`} active={currentBlueprints > 0} />
-            </div>
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => isReady && setSelectedId(s.id)}
+                      className={`rounded-lg p-3 border transition-all ${
+                        isSelected && isReady
+                          ? 'border-emerald-500/60 bg-emerald-900/20'
+                          : isReady
+                            ? 'border-zinc-700 bg-zinc-800/50 cursor-pointer hover:border-zinc-500'
+                            : 'border-zinc-800 bg-zinc-900/30 opacity-50 cursor-not-allowed'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {isReady ? (
+                          <CheckCircle className={`w-4 h-4 shrink-0 ${isSelected ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                        ) : (
+                          <Lock className="w-4 h-4 shrink-0 text-zinc-600" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <span className={`text-sm font-medium truncate block ${isReady ? 'text-zinc-100' : 'text-zinc-500'}`}>
+                            {s.title}
+                          </span>
+                          <div className="flex gap-2 mt-1">
+                            {phases.map((p) => (
+                              <span key={p.label} className={`text-[10px] font-mono ${p.done ? 'text-emerald-400' : 'text-zinc-600'}`}>
+                                {p.done ? '✓' : '○'} {p.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        {isSelected && isReady && !isRunning && (
+                          <div className="flex gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              onClick={() => run('build_packet')}
+                              size="sm"
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs"
+                            >
+                              <Package className="w-3.5 h-3.5 mr-1.5" />
+                              Build Packet
+                            </Button>
+                            <Button
+                              onClick={() => run('investor_brief')}
+                              size="sm"
+                              className="bg-purple-600 hover:bg-purple-700 text-white font-mono text-xs"
+                            >
+                              <FileText className="w-3.5 h-3.5 mr-1.5" />
+                              Investor Brief
+                            </Button>
+                          </div>
+                        )}
+                        {isSelected && isRunning && (
+                          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <Button onClick={stop} variant="destructive" size="sm" className="font-mono text-xs">
+                              <Square className="w-3.5 h-3.5 mr-1.5" />
+                              Stop
+                            </Button>
+                          </div>
+                        )}
+                        {!isReady && (() => {
+                          const nextPhase = !hasResearch
+                            ? { href: `/verify?idea=${s.id}`, label: 'Research', color: 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10' }
+                            : !hasStress
+                              ? { href: `/verify?idea=${s.id}&tab=stress-test`, label: 'Stress Test', color: 'text-red-400 hover:text-red-300 hover:bg-red-500/10' }
+                              : !hasPrd
+                                ? { href: `/shape?idea=${s.id}`, label: 'PRD', color: 'text-blue-400 hover:text-blue-300 hover:bg-blue-500/10' }
+                                : { href: `/blueprint?idea=${s.id}`, label: 'Blueprint', color: 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/10' };
+                          return (
+                            <Link
+                              href={nextPhase.href}
+                              onClick={(e) => e.stopPropagation()}
+                              className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono transition-colors ${nextPhase.color}`}
+                            >
+                              Run {nextPhase.label}
+                              <ArrowRight className="w-3 h-3" />
+                            </Link>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {error && <p className="text-xs text-red-400 font-mono mt-3">{error}</p>}
           </Card>
@@ -442,14 +521,3 @@ ${bodyHtml}
   );
 }
 
-function StatusBadge({ label, active }: { label: string; active: boolean }) {
-  return (
-    <span
-      className={`px-2 py-1 rounded border ${
-        active ? 'border-emerald-700 text-emerald-300 bg-emerald-900/20' : 'border-zinc-800 text-zinc-500'
-      }`}
-    >
-      {label}
-    </span>
-  );
-}

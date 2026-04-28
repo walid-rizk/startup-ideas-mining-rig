@@ -118,8 +118,14 @@ function VerifyPageInner() {
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-zinc-100">{selectedIdea.title}</h2>
                 {selectedIdea.verdict && (
-                  <Badge className={`${selectedIdea.verdict === 'STRONG_INVEST' ? 'bg-emerald-600' : 'bg-emerald-700'} text-white text-xs`}>
-                    {selectedIdea.verdict === 'STRONG_INVEST' ? 'Strong Invest' : 'Invest'}
+                  <Badge className={`${
+                    selectedIdea.verdict === 'SOFT_PASS' ? 'bg-amber-700'
+                    : selectedIdea.verdict === 'STRONG_INVEST' ? 'bg-emerald-600'
+                    : 'bg-emerald-700'
+                  } text-white text-xs`}>
+                    {selectedIdea.verdict === 'STRONG_INVEST' ? 'Strong Invest'
+                     : selectedIdea.verdict === 'SOFT_PASS' ? 'Soft Pass'
+                     : 'Invest'}
                   </Badge>
                 )}
               </div>
@@ -240,6 +246,7 @@ function VerifyPageInner() {
                     const hasPRD = !!session.prds[idea.id];
                     const hasBlueprint = !!session.blueprints[idea.id];
                     const isStrongInvest = idea.verdict === 'STRONG_INVEST';
+                    const isPromoted = idea.promoted && idea.verdict === 'SOFT_PASS';
                     return (
                       <Card
                         key={idea.id}
@@ -247,17 +254,19 @@ function VerifyPageInner() {
                         className={`p-4 cursor-pointer transition-all hover:scale-[1.01] ${
                           isStrongInvest
                             ? 'bg-emerald-900/20 border-emerald-700/50 hover:border-emerald-500'
-                            : 'bg-zinc-900 border-zinc-800 hover:border-zinc-600'
+                            : isPromoted
+                              ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-600'
+                              : 'bg-emerald-900/10 border-emerald-800/40 hover:border-emerald-600'
                         }`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div
                               className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                                isStrongInvest ? 'bg-emerald-500/20' : 'bg-zinc-800'
+                                isStrongInvest ? 'bg-emerald-500/20' : isPromoted ? 'bg-zinc-800' : 'bg-emerald-500/10'
                               }`}
                             >
-                              <Trophy className={`w-5 h-5 ${isStrongInvest ? 'text-emerald-300' : 'text-zinc-400'}`} />
+                              <Trophy className={`w-5 h-5 ${isStrongInvest ? 'text-emerald-300' : isPromoted ? 'text-zinc-400' : 'text-emerald-400'}`} />
                             </div>
                             <div>
                               <h4 className="font-semibold text-zinc-100">{idea.title}</h4>
@@ -284,8 +293,10 @@ function VerifyPageInner() {
                             {hasPRD && <Badge variant="outline" className="text-blue-400 border-blue-400/50 text-xs">PRD</Badge>}
                             {hasBlueprint && <Badge variant="outline" className="text-purple-400 border-purple-400/50 text-xs">Blueprint</Badge>}
                             {idea.verdict && (
-                              <Badge className={`${isStrongInvest ? 'bg-emerald-600' : 'bg-emerald-700'} text-white text-xs`}>
-                                {isStrongInvest ? 'Strong Invest' : 'Invest'}
+                              <Badge className={`${
+                                isPromoted ? 'bg-amber-700' : isStrongInvest ? 'bg-emerald-600' : 'bg-emerald-700'
+                              } text-white text-xs`}>
+                                {isPromoted ? 'Soft Pass' : isStrongInvest ? 'Strong Invest' : 'Invest'}
                               </Badge>
                             )}
                             <ChevronRight className="w-5 h-5 text-zinc-500" />
@@ -337,6 +348,15 @@ function VerifyPageInner() {
             </div>
           </div>
         )}
+
+        <div className="max-w-4xl mx-auto flex justify-end mt-6">
+          <Link href={selectedIdea ? `/shape?idea=${selectedIdea.id}` : '/shape'}>
+            <Button variant="outline" className="font-mono text-sm border-blue-500/40 text-blue-400 hover:text-blue-300 hover:border-blue-400 hover:bg-blue-500/10">
+              Next: Shape PRD
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </Link>
+        </div>
       </main>
 
       <footer className="border-t border-zinc-800 px-6 py-3">

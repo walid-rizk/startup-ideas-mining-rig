@@ -52,21 +52,21 @@ Thin handlers — each parses input, calls its prompt builder, and delegates to 
 Single `Session` object in React context, debounced-persisted to localStorage (`idea-mining-rig.session.v1`). Shape (see `src/lib/types.ts`):
 ```ts
 { id, createdAt, updatedAt, founderContext, thesis, modelChoice,
-  intakeMessages, survivors, allIdeas, verifications, stressTests, prds, blueprints, synthesis }
+  intakeMessages, survivors, allIdeas, discardedIdeas, verifications, stressTests, prds, blueprints, synthesis, syntheses }
 ```
-Survivors carry structured fields parsed from the vc-partner memo (`verdict`, `moatScore`, `founderFitScore`, `marketTimingScore`, `distributionEdgeScore`, `oneLiner`, `bullCase`, `bearCase`, `comparableCompanies`, `marketSizing`, `unitEconomics`, `keyRisks`, etc.). Parsing logic lives in `src/components/mining/war-room.tsx` (`parseVerdicts`).
+Survivors carry structured fields parsed from the vc-partner memo (`verdict`, `moatScore`, `founderFitScore`, `marketTimingScore`, `distributionEdgeScore`, `oneLiner`, `bullCase`, `bearCase`, `comparableCompanies`, `marketSizing`, `unitEconomics`, `keyRisks`, etc.). The `promoted` boolean tracks founder-overridden SOFT_PASS ideas that were manually promoted to survivors. The `pinned` boolean protects ideas from being cleared. Parsing logic lives in `src/components/mining/war-room.tsx` (`parseVerdicts`).
 
 ### Scoring & Confidence Pipeline
 Ideas accumulate structured signals across phases:
 - **VC Partner (Mine):** verdict + 4-dimension scores (Moat, Founder Fit, Market Timing, Distribution Edge, each 1-10)
 - **Data Miner (Verify):** **Market Confidence** rating (STRONG / MODERATE / WEAK / INSUFFICIENT) — emitted as the first line after the report title, parsed by `parseMarketConfidence()` in both `verify-session.tsx` and `page.tsx`
 - **Stress Tester (Verify):** **Stress Severity** rating (CRITICAL / HIGH / MODERATE / LOW) — emitted as `**Overall: [LEVEL]**`, parsed by `parseStressSeverity()` in both `stress-test-session.tsx` and `page.tsx`
-- **Dashboard (derived):** **Composite Health** (High Confidence / Promising / Caution / At Risk) — computed by `computeIdeaHealth()` in `page.tsx` from the average of available VC scores, adjusted by market confidence (STRONG: +1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5) and stress severity (CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: +0.5). Only displayed after at least one diligence phase completes.
+- **Dashboard (derived):** **Idea Score** (0–10) — computed by `computeIdeaScore()` in `page.tsx` from the average of VC scores, adjusted by market confidence (STRONG: +1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5) and stress severity (CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: +0.5). Before any diligence phase completes, the score is dampened by 0.7× and displayed as preliminary (`~5.3 EST`). After diligence, actual adjustments replace the penalty. Survivors are sorted by Idea Score (highest first) on the dashboard and synthesize pages.
 
 ### Pages
 | Route | Component driver | Purpose |
 | --- | --- | --- |
-| `/` | inline | Dashboard — thesis headline, survivors with scores + health badges + clickable pipeline phases (deep-link to specific idea via `?idea=<id>`), next-step nudge |
+| `/` | inline | Dashboard — thesis headline, survivors with Idea Score + expandable TLDR + clickable pipeline phases (deep-link to specific idea via `?idea=<id>`), next-step nudge |
 | `/intake` | `IntakeSession` + inline | Multi-turn chat to build founder context; also hosts the Thesis generator and Chosen Thesis editor (combined phase) |
 | `/mine` | `WarRoom` | Gauntlet loop: generate + critique until 4 survivors or 3 batches. Survivors panel has a draggable resize handle (persisted to localStorage) |
 | `/verify` | `VerifySession` + `StressTestSession` | Per-survivor due diligence: market research (data-miner) + stress test (devil's advocate) in tabs |

@@ -385,7 +385,7 @@ ${bodyHtml}
                 disabled={isBuilding}
               >
                 <Code2 className="w-4 h-4 mr-2" />
-                CREATE BLUEPRINT
+                {initialBlueprint ? 'REGENERATE BLUEPRINT' : 'CREATE BLUEPRINT'}
               </Button>
             ) : (
               <Button
@@ -448,7 +448,7 @@ ${bodyHtml}
           >
             {blueprintOutput || (
               <span className="text-zinc-600">
-                Click "Create Blueprint" to generate the technical plan...
+                Click &quot;{initialBlueprint ? 'Regenerate Blueprint' : 'Create Blueprint'}&quot; to generate the technical plan...
               </span>
             )}
           </div>

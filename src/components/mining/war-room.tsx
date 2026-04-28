@@ -28,6 +28,7 @@ import {
   ChevronUp,
   Pin,
   PinOff,
+  ArrowUpCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -52,6 +53,7 @@ interface IdeaResult {
   critique?: string;
   verdict?: Verdict;
   pinned?: boolean;
+  promoted?: boolean;
   oneLiner?: string;
   bullCase?: string;
   bearCase?: string;
@@ -97,6 +99,7 @@ function fromPublicIdeas(ideas: PublicIdeaResult[]): IdeaResult[] {
       critique: parts.length > 1 ? parts.slice(1).join('\n\n---\n\n') : '',
       verdict: idea.verdict,
       pinned: idea.pinned ?? false,
+      promoted: idea.promoted ?? false,
       oneLiner: idea.oneLiner,
       bullCase: idea.bullCase,
       bearCase: idea.bearCase,
@@ -130,6 +133,7 @@ function toPublicIdeas(ideas: IdeaResult[]): PublicIdeaResult[] {
     batchNumber: Number(idea.id.split('-')[0]) || 1,
     verdict: idea.verdict,
     pinned: idea.pinned ?? false,
+    promoted: idea.promoted ?? false,
     moatScore: idea.scores?.moat,
     founderFitScore: idea.scores?.founderFit,
     marketTimingScore: idea.scores?.marketTiming,
@@ -529,14 +533,9 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   const startMining = async () => {
     if (globalMining.isRunning) return;
 
-    const pinnedSurvivors = survivors.filter((s) => s.pinned);
-    const pinnedAll = allIdeas.filter((s) => s.pinned);
-
     ownRunRef.current = true;
     setIsRunning(true);
     setError(null);
-    setSurvivors(pinnedSurvivors);
-    setAllIdeas(pinnedAll);
     setCurrentBatch(0);
     setGeneratedIdeas('');
     setCritiqueOutput('');
@@ -546,11 +545,12 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     setMiningStatus({ isRunning: true, phase: 'generating', currentBatch: 0 });
 
     try {
-      let currentSurvivors: IdeaResult[] = [...pinnedSurvivors];
-      let allBatchIdeas: IdeaResult[] = [...pinnedAll];
+      let currentSurvivors: IdeaResult[] = [...survivors];
+      let allBatchIdeas: IdeaResult[] = [...allIdeas];
+      const priorSurvivorCount = currentSurvivors.length;
       let batch = 1;
 
-      while (batch <= maxBatches && currentSurvivors.length < targetSurvivors) {
+      while (batch <= maxBatches && (currentSurvivors.length - priorSurvivorCount) < targetSurvivors) {
         setCurrentBatch(batch);
         setMiningStatus({ currentBatch: batch });
 
@@ -573,8 +573,8 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         });
         setSurvivors(currentSurvivors);
 
-        // Check if we have enough survivors
-        if (currentSurvivors.length >= targetSurvivors) {
+        // Check if we have enough new survivors from this run
+        if ((currentSurvivors.length - priorSurvivorCount) >= targetSurvivors) {
           break;
         }
 
@@ -716,9 +716,37 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     onComplete?.(toPublicIdeas(nextSurvivors), toPublicIdeas(nextAll));
   };
 
+  const handlePromote = (idea: IdeaResult, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const promoted = { ...idea, promoted: true };
+    setAllIdeas((prev) => prev.map((i) => (i.id === idea.id ? promoted : i)));
+    setSurvivors((prev) => [...prev, promoted].sort((a, b) => {
+      const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
+      const rankB = b.verdict ? VERDICT_CONFIG[b.verdict].rank : 99;
+      return rankA - rankB;
+    }));
+    const nextAll = allIdeas.map((i) => (i.id === idea.id ? promoted : i));
+    const nextSurvivors = [...survivors, promoted].sort((a, b) => {
+      const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
+      const rankB = b.verdict ? VERDICT_CONFIG[b.verdict].rank : 99;
+      return rankA - rankB;
+    });
+    onComplete?.(toPublicIdeas(nextSurvivors), toPublicIdeas(nextAll));
+  };
+
+  const handleDemote = (idea: IdeaResult, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const demoted = { ...idea, promoted: false };
+    setAllIdeas((prev) => prev.map((i) => (i.id === idea.id ? demoted : i)));
+    setSurvivors((prev) => prev.filter((s) => s.id !== idea.id));
+    const nextAll = allIdeas.map((i) => (i.id === idea.id ? demoted : i));
+    const nextSurvivors = survivors.filter((s) => s.id !== idea.id);
+    onComplete?.(toPublicIdeas(nextSurvivors), toPublicIdeas(nextAll));
+  };
+
   const handleRestore = (pub: PublicIdeaResult) => {
     const idea = fromPublicIdeas([pub])[0];
-    const isSurvivor = idea.verdict && VERDICT_CONFIG[idea.verdict]?.survives;
+    const isSurvivor = (idea.verdict && VERDICT_CONFIG[idea.verdict]?.survives) || idea.promoted;
     if (isSurvivor) {
       setSurvivors((prev) => [...prev, idea].sort((a, b) => {
         const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
@@ -905,12 +933,42 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
             <Badge variant="outline" className="text-emerald-400 border-emerald-400/50 text-xs">
               {survivors.length} / {targetSurvivors}
             </Badge>
+            {(survivors.length > 0 || allIdeas.length > 0) && !isRunning && (
+              <button
+                onClick={() => {
+                  const unpinnedSurvivors = survivors.filter(s => !s.pinned);
+                  const pinned = survivors.filter(s => s.pinned);
+                  const pinnedIds = new Set(pinned.map(s => s.id));
+                  const nonSurvivorCount = allIdeas.filter(i => !survivors.some(s => s.id === i.id)).length;
+                  const clearCount = unpinnedSurvivors.length + nonSurvivorCount;
+                  if (clearCount === 0) return;
+                  const parts: string[] = [];
+                  if (unpinnedSurvivors.length > 0) parts.push(`${unpinnedSurvivors.length} unpinned survivor${unpinnedSurvivors.length === 1 ? '' : 's'} to the discard pile`);
+                  if (nonSurvivorCount > 0) parts.push(`${nonSurvivorCount} non-survivor idea${nonSurvivorCount === 1 ? '' : 's'}`);
+                  const msg = pinned.length > 0
+                    ? `This will clear ${parts.join(' and ')}. ${pinned.length} pinned idea${pinned.length === 1 ? '' : 's'} will be kept. Continue?`
+                    : `This will clear ${parts.join(' and ')}. Are you sure?`;
+                  if (!window.confirm(msg)) return;
+                  const allToDiscard = allIdeas.filter(i => !pinnedIds.has(i.id));
+                  for (const idea of allToDiscard) {
+                    onDiscard?.(toPublicIdeas([idea])[0]);
+                  }
+                  setSurvivors(pinned);
+                  setAllIdeas(prev => prev.filter(i => pinnedIds.has(i.id)));
+                }}
+                className="ml-auto p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                title="Clear all ideas (pinned survivors are kept)"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
           <div className="h-[400px] overflow-y-auto space-y-2">
             <AnimatePresence>
               {survivors.map((idea, index) => {
                 const config = idea.verdict ? VERDICT_CONFIG[idea.verdict] : null;
                 const isStrongInvest = idea.verdict === 'STRONG_INVEST';
+                const isPromoted = idea.verdict === 'SOFT_PASS';
                 return (
                   <motion.div
                     key={idea.id}
@@ -919,16 +977,18 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                     transition={{ delay: index * 0.1 }}
                     onClick={() => setSelectedIdea(idea)}
                     className={`rounded-lg p-3 cursor-pointer transition-all hover:scale-[1.02] ${
-                      isStrongInvest
-                        ? 'bg-emerald-800/30 border-2 border-emerald-500/70 hover:border-emerald-400'
-                        : 'bg-emerald-900/20 border border-emerald-800/50 hover:border-emerald-600'
+                      isPromoted
+                        ? 'bg-amber-900/15 border border-amber-700/50 hover:border-amber-500'
+                        : isStrongInvest
+                          ? 'bg-emerald-800/30 border-2 border-emerald-500/70 hover:border-emerald-400'
+                          : 'bg-emerald-900/20 border border-emerald-800/50 hover:border-emerald-600'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <CheckCircle className={`w-4 h-4 shrink-0 ${isStrongInvest ? 'text-emerald-300' : 'text-emerald-400'}`} />
-                          <span className={`font-mono text-sm ${isStrongInvest ? 'text-emerald-100 font-semibold' : 'text-emerald-100'}`}>
+                          <CheckCircle className={`w-4 h-4 shrink-0 ${isPromoted ? 'text-amber-400' : isStrongInvest ? 'text-emerald-300' : 'text-emerald-400'}`} />
+                          <span className={`font-mono text-sm ${isPromoted ? 'text-amber-100' : isStrongInvest ? 'text-emerald-100 font-semibold' : 'text-emerald-100'}`}>
                             {idea.title}
                           </span>
                         </div>
@@ -950,17 +1010,27 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                         <Badge className={`${config?.bgColor || 'bg-emerald-600'} text-white text-xs`}>
                           {config?.label || 'INVEST'}
                         </Badge>
-                        <button
-                          onClick={(e) => handleTogglePin(idea, e)}
-                          className={`p-1 rounded transition-colors ${
-                            idea.pinned
-                              ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-400/10'
-                              : 'text-zinc-600 hover:text-amber-400 hover:bg-amber-400/10'
-                          }`}
-                          title={idea.pinned ? 'Unpin — will be wiped on next Start Mining' : 'Pin — preserve across Start Mining runs'}
-                        >
-                          {idea.pinned ? <Pin className="w-3.5 h-3.5 fill-current" /> : <Pin className="w-3.5 h-3.5" />}
-                        </button>
+                        {isPromoted ? (
+                          <button
+                            onClick={(e) => handleDemote(idea, e)}
+                            className="p-1 rounded text-zinc-600 hover:text-amber-400 hover:bg-amber-400/10 transition-colors"
+                            title="Demote — return to soft pass"
+                          >
+                            <ArrowUpCircle className="w-3.5 h-3.5 rotate-180" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => handleTogglePin(idea, e)}
+                            className={`p-1 rounded transition-colors ${
+                              idea.pinned
+                                ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-400/10'
+                                : 'text-zinc-600 hover:text-amber-400 hover:bg-amber-400/10'
+                            }`}
+                            title={idea.pinned ? 'Unpin — will be wiped on next Start Mining' : 'Pin — preserve across Start Mining runs'}
+                          >
+                            {idea.pinned ? <Pin className="w-3.5 h-3.5 fill-current" /> : <Pin className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
                         <button
                           onClick={(e) => handleDiscard(idea, e)}
                           className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
@@ -971,16 +1041,16 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                       </div>
                     </div>
                     <div className="mt-2 text-xs text-zinc-500 font-mono">
-                      {idea.pinned ? '📌 Pinned — survives re-mining · ' : ''}Click for details →
+                      {isPromoted ? 'Founder override — promoted from Soft Pass · ' : idea.pinned ? '📌 Pinned — survives re-mining · ' : ''}Click for details →
                     </div>
                   </motion.div>
                 );
               })}
             </AnimatePresence>
 
-            {/* Failed ideas (Soft Pass and Strong Pass) */}
+            {/* Failed ideas (Soft Pass and Strong Pass) — exclude promoted */}
             {allIdeas
-              .filter(i => i.verdict && !VERDICT_CONFIG[i.verdict]?.survives)
+              .filter(i => i.verdict && !VERDICT_CONFIG[i.verdict]?.survives && !survivors.some(s => s.id === i.id))
               .map((idea) => {
                 const config = idea.verdict ? VERDICT_CONFIG[idea.verdict] : null;
                 const isSoftPass = idea.verdict === 'SOFT_PASS';
@@ -1005,6 +1075,15 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                       >
                         {config?.label || 'PASS'}
                       </Badge>
+                      {isSoftPass && (
+                        <button
+                          onClick={(e) => handlePromote(idea, e)}
+                          className="p-1 rounded text-zinc-600 hover:text-emerald-400 hover:bg-emerald-400/10 transition-colors"
+                          title="Promote to survivor — override the VC and proceed with this idea"
+                        >
+                          <ArrowUpCircle className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button
                         onClick={(e) => handleDiscard(idea, e)}
                         className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
@@ -1087,9 +1166,6 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                   <TrendingUp className="w-4 h-4" />
                   Mining complete! Found {survivors.length} investable ideas.
                 </div>
-                <p className="text-xs text-zinc-500 mt-1 ml-6">
-                  Pin ideas to keep them across mining rounds — unpinned ideas are replaced when you run again.
-                </p>
               </div>
               <div className="flex items-center gap-3">
                 <Button
@@ -1101,9 +1177,9 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                 </Button>
                 {survivors.length > 0 && (
                   <Link href="/verify">
-                    <Button className="bg-yellow-600 hover:bg-yellow-700 text-white font-mono">
+                    <Button variant="outline" className="font-mono text-sm border-yellow-500/40 text-yellow-400 hover:text-yellow-300 hover:border-yellow-400 hover:bg-yellow-500/10">
                       <Search className="w-4 h-4 mr-2" />
-                      Verify
+                      Next: Verify
                       <ArrowRight className="w-4 h-4 ml-2" />
                     </Button>
                   </Link>
@@ -1137,7 +1213,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
               {/* Header */}
               <div className="shrink-0 px-6 py-4 border-b border-zinc-800 bg-zinc-900/60 flex items-center gap-4">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  {selectedIdea.verdict && VERDICT_CONFIG[selectedIdea.verdict]?.survives ? (
+                  {selectedIdea.verdict && (VERDICT_CONFIG[selectedIdea.verdict]?.survives || selectedIdea.promoted) ? (
                     <CheckCircle className="w-6 h-6 text-emerald-400 shrink-0" />
                   ) : (
                     <XCircle className="w-6 h-6 text-red-400 shrink-0" />
@@ -1184,6 +1260,16 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
                       </div>
                     )}
                   </div>
+                )}
+
+                {selectedIdea.verdict && (VERDICT_CONFIG[selectedIdea.verdict]?.survives || selectedIdea.promoted) && (
+                  <Link
+                    href={`/verify?idea=${selectedIdea.id}`}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition-colors text-xs font-mono"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    VERIFY
+                  </Link>
                 )}
 
                 <button

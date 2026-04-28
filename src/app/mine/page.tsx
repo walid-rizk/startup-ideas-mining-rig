@@ -36,7 +36,7 @@ export default function MinePage() {
   const handleRestore = (idea: IdeaResult) => {
     update((prev) => ({
       discardedIdeas: prev.discardedIdeas.filter((d) => d.id !== idea.id),
-      survivors: idea.verdict === 'STRONG_INVEST' || idea.verdict === 'INVEST'
+      survivors: idea.verdict === 'STRONG_INVEST' || idea.verdict === 'INVEST' || idea.promoted
         ? [...prev.survivors, idea]
         : prev.survivors,
       allIdeas: [...prev.allIdeas, idea],

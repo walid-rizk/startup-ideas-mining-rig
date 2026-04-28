@@ -1,10 +1,9 @@
 'use client';
 
 import { useChat } from 'ai/react';
-import { useRef, useEffect, useState, ChangeEvent } from 'react';
+import { useRef, useEffect, useState, useCallback, ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Send, Terminal, Loader2, AlertCircle, Paperclip, FileText, X, CheckCircle, Compass } from 'lucide-react';
 import { useSession } from '@/lib/session-context';
@@ -21,6 +20,8 @@ export default function IntakeSession() {
   const { session, update } = useSession();
   const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastAssistantRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachedFile, setAttachedFile] = useState<{ name: string; content: string } | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
@@ -102,10 +103,24 @@ export default function IntakeSession() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, isLoading]);
 
-  // Auto-scroll to bottom when new messages arrive
+  const prevCountRef = useRef(messages.length);
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const grew = messages.length > prevCountRef.current;
+    prevCountRef.current = messages.length;
+    const last = messages[messages.length - 1];
+    if (grew && last?.role === 'assistant' && lastAssistantRef.current) {
+      lastAssistantRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, isLoading]);
+
+  const resizeTextarea = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+  }, []);
 
   const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -161,8 +176,10 @@ export default function IntakeSession() {
       // Clear the text input
       const inputEvent = { target: { value: '' } } as ChangeEvent<HTMLInputElement>;
       handleInputChange(inputEvent);
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
     } else if (input.trim()) {
       handleSubmit(e);
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
     }
   };
 
@@ -189,9 +206,12 @@ export default function IntakeSession() {
         className="flex-1 overflow-y-auto p-4 space-y-4"
         style={{ scrollBehavior: 'smooth' }}
       >
-        {messages.map((m) => (
+        {messages.map((m, idx) => {
+          const isLastAssistant = m.role === 'assistant' && idx === [...messages].reduce((last, msg, i) => msg.role === 'assistant' ? i : last, -1);
+          return (
           <div
             key={m.id}
+            ref={isLastAssistant ? lastAssistantRef : undefined}
             className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
@@ -208,7 +228,8 @@ export default function IntakeSession() {
               {m.content}
             </div>
           </div>
-        ))}
+          );
+        })}
 
         {/* Loading Indicator */}
         {isLoading && (
@@ -298,12 +319,21 @@ export default function IntakeSession() {
             )}
           </Button>
 
-          <Input
+          <textarea
+            ref={textareaRef}
             value={input}
-            onChange={handleInputChange}
+            onChange={(e) => { handleInputChange(e as unknown as ChangeEvent<HTMLInputElement>); requestAnimationFrame(resizeTextarea); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (input.trim() || attachedFile) handleFormSubmit(e);
+              }
+            }}
             placeholder={attachedFile ? "Add a message (optional)..." : "Enter your response or paste resume..."}
             disabled={isLoading}
-            className="flex-1 bg-zinc-950 border-zinc-800 text-zinc-300 font-mono focus-visible:ring-emerald-500/50 disabled:opacity-50"
+            rows={1}
+            className="flex-1 bg-zinc-950 border border-zinc-800 text-zinc-300 font-mono text-sm rounded-md px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500/50 disabled:opacity-50"
+            style={{ maxHeight: 200 }}
           />
           <Button
             type="submit"
@@ -319,7 +349,7 @@ export default function IntakeSession() {
           </Button>
         </form>
         <div className="mt-2 text-xs text-zinc-600 font-mono flex items-center justify-between">
-          <span>{isLoading ? '⏳ Waiting for response...' : 'Press Enter to send • 📎 to attach resume'}</span>
+          <span>{isLoading ? '⏳ Waiting for response...' : 'Enter to send • Shift+Enter for new line • 📎 to attach resume'}</span>
           {attachedFile && <span className="text-emerald-500">📄 File attached</span>}
         </div>
       </div>

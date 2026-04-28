@@ -153,7 +153,7 @@ export function AppHeader({ currentPhase }: { currentPhase?: PhaseKey }) {
                 Startup Idea Mining Rig
               </h1>
               <p className="text-xs text-zinc-500 font-mono">
-                STARTUP IDEA VALIDATOR v0.1
+                STARTUP IDEA VALIDATOR v1.0
               </p>
             </div>
           </Link>

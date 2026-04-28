@@ -187,9 +187,9 @@ export function buildThesisPrompt(opts: { userContext: string }): string {
   return [
     temporalAnchor(),
     section("Founder Context", opts.userContext),
-    `Generate exactly 3 candidate theses per your Output Contract.`,
+    `Generate exactly 2 candidate theses per your Output Contract.`,
     `Before generating theses, emit a ## Market Pulse section with 3–5 macro trends relevant to this founder's domain **as of today's date above**. Draw on current AI capability shifts, regulatory changes, distribution changes, and infrastructure commoditisation — anchored to what is true now, not a 2023/2024 snapshot.`,
-    `The 3 theses must be materially different on the three axes in your system prompt, and each must include a **Why Now** grounded in a specific current trend from the Market Pulse.`,
+    `The 2 theses must be materially different — one Grounded Pick and one Wild Card — and each must include a **Why Now** grounded in a specific current trend from the Market Pulse.`,
     `End with a ## Recommendation that names the best thesis for this founder given their Win Condition, and hand the choice back to them.`,
   ].join("\n");
 }
