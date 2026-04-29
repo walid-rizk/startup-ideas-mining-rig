@@ -3,7 +3,7 @@ import { buildBlueprintPrompt } from "@/lib/prompt-builders";
 import { DEFAULT_MODEL } from "@/lib/types";
 import type { ModelChoice } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   const { userContext, idea, vcMemo, marketResearch, prd, modelChoice } = (await req.json()) as {
@@ -27,5 +27,6 @@ export async function POST(req: Request) {
     model: modelChoice ?? DEFAULT_MODEL,
     userMessage: buildBlueprintPrompt({ userContext, ideaMarkdown: idea, vcMemo, marketResearch, prd }),
     temperature: 0.5,
+    maxTokens: 16000,
   });
 }

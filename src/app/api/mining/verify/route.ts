@@ -25,5 +25,6 @@ export async function POST(req: Request) {
     model: modelChoice ?? DEFAULT_MODEL,
     userMessage: buildVerifyPrompt({ userContext, ideaMarkdown: idea, vcMemo }),
     temperature: 0.4,
+    maxTokens: 12000,
   });
 }

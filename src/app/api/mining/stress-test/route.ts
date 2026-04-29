@@ -26,5 +26,6 @@ export async function POST(req: Request) {
     model: modelChoice ?? DEFAULT_MODEL,
     userMessage: buildStressTestPrompt({ userContext, ideaMarkdown: idea, vcMemo, marketResearch }),
     temperature: 0.7,
+    maxTokens: 8000,
   });
 }

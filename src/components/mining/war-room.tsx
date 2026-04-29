@@ -35,7 +35,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { ModelChoice, IdeaResult as PublicIdeaResult, Verdict } from '@/lib/types';
 import { streamToText } from '@/lib/streaming';
 import { renderMarkdownBlock } from '@/lib/markdown-render';
-import { useMiningStatus, setMiningStatus, setMiningAbort, getMiningAbort } from '@/lib/mining-status';
+import { useMiningStatus, setMiningStatus, setMiningAbort, getMiningAbort, getMiningStatus, useMiningOutput, setMiningOutput } from '@/lib/mining-status';
 
 type MiningPhase = 'idle' | 'generating' | 'critiquing' | 'complete';
 
@@ -157,21 +157,26 @@ function toPublicIdeas(ideas: IdeaResult[]): PublicIdeaResult[] {
 }
 
 export default function WarRoom({ userContext, modelChoice, onComplete, onDiscard, onRestore, onDeletePermanently, initialSurvivors, initialAllIdeas, discardedIdeas: externalDiscarded }: WarRoomProps) {
-  const [phase, setPhase] = useState<MiningPhase>(() =>
-    initialSurvivors && initialSurvivors.length > 0 ? 'complete' : 'idle'
-  );
-  const [currentBatch, setCurrentBatch] = useState(0);
+  const [phase, setPhase] = useState<MiningPhase>(() => {
+    const g = getMiningStatus();
+    if (g.isRunning) return g.phase;
+    return initialSurvivors && initialSurvivors.length > 0 ? 'complete' : 'idle';
+  });
+  const [currentBatch, setCurrentBatch] = useState(() => getMiningStatus().currentBatch);
   const [maxBatches] = useState(3);
-  const [generatedIdeas, setGeneratedIdeas] = useState<string>('');
-  const [critiqueOutput, setCritiqueOutput] = useState<string>('');
   const [survivors, setSurvivors] = useState<IdeaResult[]>(() =>
     initialSurvivors ? fromPublicIdeas(initialSurvivors) : []
   );
   const [allIdeas, setAllIdeas] = useState<IdeaResult[]>(() =>
     initialAllIdeas ? fromPublicIdeas(initialAllIdeas) : []
   );
-  const [isRunning, setIsRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isRunning, setIsRunning] = useState(() => getMiningStatus().isRunning);
+
+  // Streaming text and error live in a global store so they persist across navigations
+  const miningOutput = useMiningOutput();
+  const generatedIdeas = miningOutput.generatedIdeas;
+  const critiqueOutput = miningOutput.critiqueOutput;
+  const error = miningOutput.error;
   const [selectedIdea, setSelectedIdea] = useState<IdeaResult | null>(null);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [customIdea, setCustomIdea] = useState('');
@@ -179,6 +184,13 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   const outputRef = useRef<HTMLDivElement>(null);
   const ownRunRef = useRef(false);
   const globalMining = useMiningStatus();
+
+  // Refs that shadow React state so async mining functions always see the
+  // latest survivors/allIdeas (including mid-batch promotions, pins, discards).
+  const survivorsRef = useRef(survivors);
+  survivorsRef.current = survivors;
+  const allIdeasRef = useRef(allIdeas);
+  allIdeasRef.current = allIdeas;
 
   const [isDesktop, setIsDesktop] = useState(false);
   const [survivorsPct, setSurvivorsPctRaw] = useState(() => {
@@ -230,11 +242,18 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     setSurvivors(initialSurvivors ? fromPublicIdeas(initialSurvivors) : []);
     setAllIdeas(initialAllIdeas ? fromPublicIdeas(initialAllIdeas) : []);
     setPhase(initialSurvivors && initialSurvivors.length > 0 ? 'complete' : 'idle');
-    setGeneratedIdeas('');
-    setCritiqueOutput('');
-    setError(null);
+    setMiningOutput({ generatedIdeas: '', critiqueOutput: '', error: null });
     setIsRunning(false);
   }, [initialSurvivors, initialAllIdeas]);
+
+  // Sync local state from global store when an external run is in progress
+  useEffect(() => {
+    if (globalMining.isRunning && !ownRunRef.current) {
+      setPhase(globalMining.phase);
+      setCurrentBatch(globalMining.currentBatch);
+      setIsRunning(true);
+    }
+  }, [globalMining.isRunning, globalMining.phase, globalMining.currentBatch]);
 
   const prevRunningRef = useRef(globalMining.isRunning);
   useEffect(() => {
@@ -499,7 +518,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   const runBatch = async (batchNumber: number, priorIdeas?: string[]): Promise<IdeaResult[]> => {
     setPhase('generating');
     setMiningStatus({ phase: 'generating' });
-    setGeneratedIdeas('');
+    setMiningOutput({ generatedIdeas: '' });
 
     const generateResponse = await fetch('/api/mining/generate', {
       method: 'POST',
@@ -510,12 +529,12 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
 
     if (!generateResponse.ok) throw new Error('Failed to generate ideas');
 
-    const ideasText = await streamToText(generateResponse, setGeneratedIdeas);
+    const ideasText = await streamToText(generateResponse, (text) => setMiningOutput({ generatedIdeas: text }));
     const batchIdeas = parseIdeasFromText(ideasText, batchNumber);
 
     setPhase('critiquing');
     setMiningStatus({ phase: 'critiquing' });
-    setCritiqueOutput('');
+    setMiningOutput({ critiqueOutput: '' });
 
     const critiqueResponse = await fetch('/api/mining/critique', {
       method: 'POST',
@@ -526,7 +545,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
 
     if (!critiqueResponse.ok) throw new Error('Failed to critique ideas');
 
-    const critiqueText = await streamToText(critiqueResponse, setCritiqueOutput);
+    const critiqueText = await streamToText(critiqueResponse, (text) => setMiningOutput({ critiqueOutput: text }));
     return parseVerdicts(critiqueText, batchIdeas);
   };
 
@@ -535,51 +554,46 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
 
     ownRunRef.current = true;
     setIsRunning(true);
-    setError(null);
+    setMiningOutput({ generatedIdeas: '', critiqueOutput: '', error: null });
     setCurrentBatch(0);
-    setGeneratedIdeas('');
-    setCritiqueOutput('');
     setPhase('generating');
     abortControllerRef.current = new AbortController();
     setMiningAbort(abortControllerRef.current);
     setMiningStatus({ isRunning: true, phase: 'generating', currentBatch: 0 });
 
     try {
-      let currentSurvivors: IdeaResult[] = [...survivors];
-      let allBatchIdeas: IdeaResult[] = [...allIdeas];
       const discardedTitles = (externalDiscarded ?? []).map(i => i.title).filter(Boolean);
-      const priorSurvivorCount = currentSurvivors.length;
+      const priorSurvivorCount = survivorsRef.current.length;
       let batch = 1;
 
-      while (batch <= maxBatches && (currentSurvivors.length - priorSurvivorCount) < targetSurvivors) {
+      while (batch <= maxBatches && (survivorsRef.current.length - priorSurvivorCount) < targetSurvivors) {
         setCurrentBatch(batch);
         setMiningStatus({ currentBatch: batch });
 
         const priorTitles = [
           ...discardedTitles,
-          ...allBatchIdeas.map(i => i.title).filter(Boolean),
+          ...allIdeasRef.current.map(i => i.title).filter(Boolean),
         ];
         const batchResults = await runBatch(batch, priorTitles.length > 0 ? priorTitles : undefined);
 
-        // Update all ideas
-        allBatchIdeas = [...allBatchIdeas, ...batchResults];
-        setAllIdeas(prev => [...prev, ...batchResults]);
+        // Merge with CURRENT state (includes any mid-batch promotions/pins)
+        const mergedAll = [...allIdeasRef.current, ...batchResults];
+        setAllIdeas(mergedAll);
+        allIdeasRef.current = mergedAll;
 
-        // Filter survivors (only STRONG_INVEST and INVEST verdicts survive)
         const newSurvivors = batchResults.filter(
           idea => idea.verdict && VERDICT_CONFIG[idea.verdict]?.survives
         );
 
-        // Add new survivors and sort by rank (STRONG_INVEST first, then INVEST)
-        currentSurvivors = [...currentSurvivors, ...newSurvivors].sort((a, b) => {
+        const mergedSurvivors = [...survivorsRef.current, ...newSurvivors].sort((a, b) => {
           const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
           const rankB = b.verdict ? VERDICT_CONFIG[b.verdict].rank : 99;
           return rankA - rankB;
         });
-        setSurvivors(currentSurvivors);
+        setSurvivors(mergedSurvivors);
+        survivorsRef.current = mergedSurvivors;
 
-        // Check if we have enough new survivors from this run
-        if ((currentSurvivors.length - priorSurvivorCount) >= targetSurvivors) {
+        if ((mergedSurvivors.length - priorSurvivorCount) >= targetSurvivors) {
           break;
         }
 
@@ -590,12 +604,12 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       setMiningStatus({ isRunning: false, phase: 'complete' });
       setMiningAbort(null);
       ownRunRef.current = false;
-      onComplete?.(toPublicIdeas(currentSurvivors), toPublicIdeas(allBatchIdeas));
+      onComplete?.(toPublicIdeas(survivorsRef.current), toPublicIdeas(allIdeasRef.current));
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        setError('Mining stopped by user');
+        setMiningOutput({ error: 'Mining stopped by user' });
       } else {
-        setError(err instanceof Error ? err.message : 'Mining failed');
+        setMiningOutput({ error: err instanceof Error ? err.message : 'Mining failed' });
       }
       setPhase('idle');
       setMiningStatus({ isRunning: false, phase: 'idle' });
@@ -620,15 +634,12 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     if (!customIdea.trim() || !userContext || globalMining.isRunning) return;
     ownRunRef.current = true;
     setIsRunning(true);
-    setError(null);
-    setGeneratedIdeas('');
-    setCritiqueOutput('');
+    setMiningOutput({ generatedIdeas: '', critiqueOutput: '', error: null });
     abortControllerRef.current = new AbortController();
     setMiningAbort(abortControllerRef.current);
     setMiningStatus({ isRunning: true, phase: 'generating', currentBatch: 0 });
 
     try {
-      // Phase 1: Futurist develops the raw idea
       setPhase('generating');
       const devRes = await fetch('/api/mining/develop', {
         method: 'POST',
@@ -642,7 +653,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         signal: abortControllerRef.current.signal,
       });
       if (!devRes.ok) throw new Error('Failed to develop idea');
-      const ideaText = await streamToText(devRes, setGeneratedIdeas);
+      const ideaText = await streamToText(devRes, (text) => setMiningOutput({ generatedIdeas: text }));
       const framed = parseIdeasFromText(ideaText, 0);
       if (framed.length === 0) throw new Error('Could not parse developed idea');
 
@@ -655,7 +666,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         signal: abortControllerRef.current.signal,
       });
       if (!critRes.ok) throw new Error('Failed to critique idea');
-      const critText = await streamToText(critRes, setCritiqueOutput);
+      const critText = await streamToText(critRes, (text) => setMiningOutput({ critiqueOutput: text }));
       const withVerdicts = parseVerdicts(critText, framed);
 
       const stamp = Date.now();
@@ -668,15 +679,17 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       const newSurvivors = finalized.filter(
         (i) => i.verdict && VERDICT_CONFIG[i.verdict]?.survives,
       );
-      const mergedSurvivors = [...survivors, ...newSurvivors].sort((a, b) => {
+      const mergedSurvivors = [...survivorsRef.current, ...newSurvivors].sort((a, b) => {
         const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
         const rankB = b.verdict ? VERDICT_CONFIG[b.verdict].rank : 99;
         return rankA - rankB;
       });
-      const mergedAll = [...allIdeas, ...finalized];
+      const mergedAll = [...allIdeasRef.current, ...finalized];
 
       setSurvivors(mergedSurvivors);
+      survivorsRef.current = mergedSurvivors;
       setAllIdeas(mergedAll);
+      allIdeasRef.current = mergedAll;
       setPhase('complete');
       setMiningStatus({ isRunning: false, phase: 'complete' });
       setMiningAbort(null);
@@ -687,9 +700,9 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       setShowCustomInput(false);
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        setError('Stopped by user');
+        setMiningOutput({ error: 'Stopped by user' });
       } else {
-        setError(err instanceof Error ? err.message : 'Custom idea run failed');
+        setMiningOutput({ error: err instanceof Error ? err.message : 'Custom idea run failed' });
       }
       setPhase('idle');
       setMiningStatus({ isRunning: false, phase: 'idle' });
@@ -863,19 +876,6 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
               <span>{survivors.length} / {targetSurvivors} survivors</span>
             </div>
             <Progress value={progress} className="h-2" />
-          </div>
-        )}
-        {globalMining.isRunning && !isRunning && (
-          <div className="mt-4 flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
-            <Loader2 className="w-4 h-4 text-red-400 animate-spin shrink-0" />
-            <div className="flex-1">
-              <span className="text-sm text-red-300 font-mono">
-                Mining in progress (batch {globalMining.currentBatch} • {globalMining.phase})
-              </span>
-              <p className="text-xs text-zinc-500 mt-0.5">
-                Results will appear here when the run finishes. You can keep browsing other pages.
-              </p>
-            </div>
           </div>
         )}
       </div>
@@ -1160,7 +1160,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
       </div>
 
       {/* Footer */}
-      {(phase === 'complete' || error) && (
+      {(phase === 'complete' || error) && !globalMining.isRunning && (
         <div className="p-4 border-t border-zinc-800 bg-zinc-900/30">
           {error ? (
             <div className="text-red-400 font-mono text-sm">{error}</div>

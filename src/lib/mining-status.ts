@@ -45,3 +45,39 @@ function subscribe(listener: () => void) {
 export function useMiningStatus(): MiningStatus {
   return useSyncExternalStore(subscribe, getMiningStatus, getMiningStatus);
 }
+
+// Separate store for streaming output — kept separate so that per-token
+// updates don't re-render components that only care about isRunning/phase.
+
+interface MiningOutput {
+  generatedIdeas: string;
+  critiqueOutput: string;
+  error: string | null;
+}
+
+let output: MiningOutput = { generatedIdeas: '', critiqueOutput: '', error: null };
+const outputListeners = new Set<() => void>();
+
+function notifyOutput() {
+  outputListeners.forEach((l) => l());
+}
+
+export function getMiningOutput(): MiningOutput {
+  return output;
+}
+
+export function setMiningOutput(patch: Partial<MiningOutput>) {
+  output = { ...output, ...patch };
+  notifyOutput();
+}
+
+function subscribeOutput(listener: () => void) {
+  outputListeners.add(listener);
+  return () => {
+    outputListeners.delete(listener);
+  };
+}
+
+export function useMiningOutput(): MiningOutput {
+  return useSyncExternalStore(subscribeOutput, getMiningOutput, getMiningOutput);
+}

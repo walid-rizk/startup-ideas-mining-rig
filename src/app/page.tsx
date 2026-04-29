@@ -32,6 +32,36 @@ import {
   Gem,
 } from 'lucide-react';
 
+function parseFounderSummary(context: string): {
+  name: string | null;
+  winCondition: string | null;
+  target: string | null;
+  lens: string | null;
+  skills: string | null;
+} {
+  const nameMatch = context.match(/^#\s+Founder Thesis:\s*(.+)/m);
+  const name = nameMatch ? nameMatch[1].trim().replace(/[*`]/g, '') : null;
+
+  const extractSection = (heading: string): string | null => {
+    const pattern = new RegExp(`^##\\s+${heading}\\s*\\n+([\\s\\S]*?)(?=\\n##\\s|$)`, 'm');
+    const m = context.match(pattern);
+    if (!m) return null;
+    const text = m[1].trim().split('\n')[0].replace(/[*`#]/g, '').trim();
+    return text || null;
+  };
+
+  const winCondition = extractSection('The Win Condition');
+  const target = extractSection('The Target');
+  const lens = extractSection('The Lens');
+
+  const dnaMatch = context.match(/\*\*Skills & Domain Authority:\*\*\s*([\s\S]*?)(?=\n\s*\*\*|\n##)/);
+  const skills = dnaMatch
+    ? dnaMatch[1].trim().split('\n').slice(0, 2).map(l => l.replace(/^[-*•]\s*/, '').replace(/[*`]/g, '').trim()).filter(Boolean).join('; ')
+    : null;
+
+  return { name, winCondition, target, lens, skills };
+}
+
 function parseStressSeverity(report: string | undefined): 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null {
   if (!report) return null;
   const match = report.match(/\*\*Overall:\s*(CRITICAL|HIGH|MODERATE|LOW)\*\*/i);
@@ -250,10 +280,7 @@ export default function Home() {
                     {renderMarkdownBlock(session.founderContext)}
                   </div>
                 ) : (
-                  <p className="text-sm text-zinc-400 leading-relaxed line-clamp-4 whitespace-pre-wrap">
-                    {session.founderContext.substring(0, 500).replace(/[#*`]/g, '').trim()}
-                    {session.founderContext.length > 500 && '…'}
-                  </p>
+                  <FounderSummaryCard context={session.founderContext} />
                 )}
               </Card>
 
@@ -628,6 +655,43 @@ function PipelinePhase({
         {tag && done ? tag : label}
       </span>
     </Link>
+  );
+}
+
+function FounderSummaryCard({ context }: { context: string }) {
+  const { name, winCondition, target, lens, skills } = parseFounderSummary(context);
+
+  if (!name && !winCondition) {
+    return (
+      <p className="text-sm text-zinc-400 leading-relaxed line-clamp-3 whitespace-pre-wrap">
+        {context.substring(0, 300).replace(/[#*`]/g, '').trim()}
+        {context.length > 300 && '...'}
+      </p>
+    );
+  }
+
+  const items: { label: string; value: string }[] = [];
+  if (winCondition) items.push({ label: 'Win', value: winCondition });
+  if (target) items.push({ label: 'Target', value: target });
+  if (lens) items.push({ label: 'Lens', value: lens });
+  if (skills) items.push({ label: 'Skills', value: skills });
+
+  return (
+    <div className="space-y-2">
+      {name && (
+        <p className="text-base font-semibold text-zinc-100">{name}</p>
+      )}
+      {items.length > 0 && (
+        <div className="space-y-1.5">
+          {items.map((item) => (
+            <div key={item.label} className="flex gap-2 text-sm">
+              <span className="text-zinc-500 font-mono text-xs shrink-0 pt-0.5 w-12">{item.label}</span>
+              <span className="text-zinc-300">{item.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -189,14 +189,26 @@ export function buildBlueprintPrompt(opts: {
   marketResearch?: string | null;
   prd?: string | null;
 }): string {
-  return [
-    section("Founder Context", opts.userContext),
-    section("Idea", opts.ideaMarkdown),
-    sectionOrMarker("VC Partner Memo", opts.vcMemo, "No VC partner memo available for this idea."),
-    sectionOrMarker("Market Research (Data Miner Report)", opts.marketResearch, "No data-miner report available for this idea."),
-    sectionOrMarker("PRD (Product Manager)", opts.prd, "No PRD available for this idea."),
+  const parts = [section("Founder Context", opts.userContext)];
+
+  if (opts.prd) {
+    // When PRD exists, every blueprint section's primary source is PRD + Founder Context.
+    // Skip raw idea / VC memo / market research to cut ~5k input tokens.
+    parts.push(section("PRD (Product Manager)", opts.prd));
+  } else {
+    parts.push(
+      section("Idea", opts.ideaMarkdown),
+      sectionOrMarker("VC Partner Memo", opts.vcMemo, "No VC partner memo available for this idea."),
+      sectionOrMarker("Market Research (Data Miner Report)", opts.marketResearch, "No data-miner report available for this idea."),
+      sectionOrMarker("PRD (Product Manager)", opts.prd, "No PRD available for this idea."),
+    );
+  }
+
+  parts.push(
     `Produce a Technical Blueprint per your Output Contract. Respect the founder's Constraints — if they're no-code, pick no-code tools. Name the Walking Skeleton first. Favor Buy over Build for commodity capabilities.`,
-  ].join("\n");
+  );
+
+  return parts.join("\n");
 }
 
 export function buildThesisPrompt(opts: { userContext: string }): string {

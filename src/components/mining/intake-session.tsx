@@ -1,7 +1,7 @@
 'use client';
 
 import { useChat } from 'ai/react';
-import { useRef, useEffect, useState, useCallback, ChangeEvent, memo } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo, ChangeEvent, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -121,38 +121,63 @@ export default function IntakeSession() {
   }, [messages, isLoading]);
 
   const prevCountRef = useRef(messages.length);
-  const lastScrollRef = useRef(0);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll when a new message appears (not on every streaming token)
   useEffect(() => {
-    const now = Date.now();
     const grew = messages.length > prevCountRef.current;
     prevCountRef.current = messages.length;
+    if (!grew) return;
+
     const last = messages[messages.length - 1];
-
-    if (grew && last?.role === 'assistant' && lastAssistantRef.current) {
+    if (last?.role === 'assistant' && lastAssistantRef.current) {
       lastAssistantRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      lastScrollRef.current = now;
-      return;
-    }
-
-    if (grew) {
+    } else {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      lastScrollRef.current = now;
-      return;
     }
+  }, [messages.length]);
 
-    // During streaming: throttle to ~200ms, only auto-scroll if user is near the bottom
-    if (isLoading && last?.role === 'assistant') {
-      if (now - lastScrollRef.current < 200) return;
-      lastScrollRef.current = now;
-      const container = chatContainerRef.current;
-      if (!container) return;
-      const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+  // During streaming: use ResizeObserver on the streaming message to auto-scroll
+  // as it grows — event-driven, no per-render overhead
+  const isStreaming = isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant';
+
+  useEffect(() => {
+    const target = lastAssistantRef.current;
+    const container = chatContainerRef.current;
+    if (!isStreaming || !target || !container) return;
+
+    const observer = new ResizeObserver(() => {
+      const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 200;
       if (nearBottom) {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        container.scrollTop = container.scrollHeight;
       }
-    }
-  }, [messages, isLoading]);
+    });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [isStreaming]);
+
+  // Memoize completed messages — during streaming only the active message re-renders
+  const completedCount = isStreaming ? messages.length - 1 : messages.length;
+  const completedElements = useMemo(() => {
+    const slice = messages.slice(0, completedCount);
+    const lastAstIdx = (() => {
+      for (let i = slice.length - 1; i >= 0; i--) {
+        if (slice[i].role === 'assistant') return i;
+      }
+      return -1;
+    })();
+    return slice.map((m, idx) => (
+      <div
+        key={m.id}
+        ref={!isStreaming && idx === lastAstIdx ? lastAssistantRef : undefined}
+        className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+        style={{ contain: 'content' }}
+      >
+        <MessageBubble role={m.role} content={m.content} />
+      </div>
+    ));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedCount]);
 
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
@@ -284,23 +309,21 @@ export default function IntakeSession() {
       <div
         ref={chatContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4"
+        style={{ willChange: 'scroll-position' }}
       >
-        {messages.map((m, idx) => {
-          const isLast = idx === messages.length - 1;
-          const isLastAssistant = m.role === 'assistant' && idx === [...messages].reduce((last, msg, i) => msg.role === 'assistant' ? i : last, -1);
-          return (
-          <div
-            key={m.id}
-            ref={isLastAssistant ? lastAssistantRef : undefined}
-            className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <MessageBubble role={m.role} content={m.content} />
-          </div>
-          );
-        })}
+        {completedElements}
 
-        {/* Loading Indicator */}
-        {isLoading && (
+        {isStreaming && (
+          <div
+            ref={lastAssistantRef}
+            className="flex justify-start"
+            style={{ contain: 'content' }}
+          >
+            <MessageBubble role="assistant" content={messages[messages.length - 1].content} />
+          </div>
+        )}
+
+        {isLoading && !isStreaming && (
           <div className="flex justify-start">
             <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 flex items-center gap-2">
               <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
@@ -309,7 +332,6 @@ export default function IntakeSession() {
           </div>
         )}
 
-        {/* Error Message */}
         {error && (
           <div className="flex justify-center p-4">
             <div className="bg-red-900/20 border border-red-800 text-red-200 text-xs font-mono p-2 rounded flex items-center gap-2">
@@ -319,7 +341,6 @@ export default function IntakeSession() {
           </div>
         )}
 
-        {/* Scroll anchor */}
         <div ref={messagesEndRef} />
       </div>
 

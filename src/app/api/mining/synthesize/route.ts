@@ -3,7 +3,7 @@ import { buildSynthesizePrompt } from "@/lib/prompt-builders";
 import { DEFAULT_MODEL } from "@/lib/types";
 import type { ModelChoice } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   const {
@@ -46,5 +46,6 @@ export async function POST(req: Request) {
       mode,
     }),
     temperature: 0.5,
+    maxTokens: 16000,
   });
 }

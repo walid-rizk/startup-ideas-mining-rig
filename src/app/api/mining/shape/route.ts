@@ -31,5 +31,6 @@ export async function POST(req: Request) {
       marketResearch,
     }),
     temperature: 0.7,
+    maxTokens: 12000,
   });
 }
