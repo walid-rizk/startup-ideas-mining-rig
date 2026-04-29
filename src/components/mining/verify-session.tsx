@@ -242,18 +242,21 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
       if (/sizing check:\*?\*?\s*supported/i.test(content)) return 'strong';
       if (/sizing check:\*?\*?\s*refined/i.test(content)) return 'mixed';
       if (/sizing check:\*?\*?\s*(overstated|breaks)/i.test(content)) return 'weak';
+      return 'mixed';
     }
 
     if (sectionKey === 'customer') {
       if (/evidence strength:\*?\*?\s*strong/i.test(content)) return 'strong';
       if (/evidence strength:\*?\*?\s*mixed/i.test(content)) return 'mixed';
       if (/evidence strength:\*?\*?\s*thin/i.test(content)) return 'weak';
+      return 'mixed';
     }
 
     if (sectionKey === 'timing') {
       if (/status:\*?\*?\s*just_right/i.test(content)) return 'strong';
       if (/status:\*?\*?\s*too_early/i.test(content)) return 'mixed';
       if (/status:\*?\*?\s*(saturated|tar_pit)/i.test(content)) return 'weak';
+      return 'mixed';
     }
 
     if (sectionKey === 'competitors') {

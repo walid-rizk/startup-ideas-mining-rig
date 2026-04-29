@@ -13,6 +13,7 @@ import {
   Terminal,
   Home,
   Loader2,
+  Gem,
 } from 'lucide-react';
 import { useMiningStatus } from '@/lib/mining-status';
 import { usePhaseRun } from '@/lib/phase-status';
@@ -147,7 +148,10 @@ export function AppHeader({ currentPhase }: { currentPhase?: PhaseKey }) {
             href="/"
             className="flex items-center gap-3 hover:opacity-90 transition-opacity"
           >
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500" />
+            <div className="w-10 h-10 rounded-lg bg-zinc-900 border border-emerald-500/30 flex items-center justify-center relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/20 to-cyan-500/10" />
+              <Gem className="w-5 h-5 text-emerald-400 relative z-10" />
+            </div>
             <div>
               <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">
                 Startup Idea Mining Rig

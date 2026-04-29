@@ -217,3 +217,61 @@ export function getVerdictRank(v: Verdict): number {
       return 3;
   }
 }
+
+export type PhaseData = {
+  verifications: Record<string, string>;
+  stressTests: Record<string, string>;
+  prds: Record<string, string>;
+  blueprints: Record<string, string>;
+};
+
+export function computeIdeaScore(
+  idea: IdeaResult,
+  phases: PhaseData,
+): { score: number; preliminary: boolean } | null {
+  const s = [idea.moatScore, idea.founderFitScore, idea.marketTimingScore, idea.distributionEdgeScore]
+    .filter((v): v is number => v != null && v > 0);
+  if (s.length === 0) return null;
+  let score = s.reduce((x, y) => x + y, 0) / s.length;
+
+  const confMatch = phases.verifications[idea.id]?.match(
+    /Market Confidence[:\s*]*(?:\*\*\s*)?(STRONG|MODERATE|WEAK|INSUFFICIENT)/i,
+  );
+  const conf = confMatch ? confMatch[1].toUpperCase() : null;
+  const sevMatch = phases.stressTests[idea.id]?.match(
+    /\*\*Overall:\s*(CRITICAL|HIGH|MODERATE|LOW)\*\*/i,
+  );
+  const sev = sevMatch ? sevMatch[1].toUpperCase() : null;
+
+  const hasMarket = conf != null;
+  const hasStress = sev != null;
+
+  if (hasMarket) {
+    const adj: Record<string, number> = { STRONG: 1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5 };
+    score += adj[conf!] ?? 0;
+  }
+  if (hasStress) {
+    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: 0.5 };
+    score += adj[sev!] ?? 0;
+  }
+
+  const preliminary = !hasMarket && !hasStress;
+  if (preliminary) score = score * 0.7;
+
+  return { score: Math.round(Math.max(0, Math.min(10, score)) * 10) / 10, preliminary };
+}
+
+export function sortByProgress(ideas: IdeaResult[], phases: PhaseData): IdeaResult[] {
+  return [...ideas].sort((a, b) => {
+    const countPhases = (id: string) =>
+      (phases.verifications[id] ? 1 : 0) +
+      (phases.stressTests[id] ? 1 : 0) +
+      (phases.prds[id] ? 1 : 0) +
+      (phases.blueprints[id] ? 1 : 0);
+    const progressDiff = countPhases(b.id) - countPhases(a.id);
+    if (progressDiff !== 0) return progressDiff;
+    const scoreA = computeIdeaScore(a, phases)?.score ?? 0;
+    const scoreB = computeIdeaScore(b, phases)?.score ?? 0;
+    return scoreB - scoreA;
+  });
+}

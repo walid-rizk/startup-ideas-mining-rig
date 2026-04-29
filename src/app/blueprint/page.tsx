@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import BlueprintSession from '@/components/mining/blueprint-session';
 import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
-import { getVerdictRank } from '@/lib/session';
+import { sortByProgress, computeIdeaScore } from '@/lib/session';
 import type { IdeaResult } from '@/lib/types';
 import { ArrowRight, Code2, Trophy, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -45,9 +45,7 @@ function BlueprintPageInner() {
 
   if (!ready) return null;
 
-  const ideas = [...session.survivors].sort(
-    (a, b) => (a.verdict ? getVerdictRank(a.verdict) : 99) - (b.verdict ? getVerdictRank(b.verdict) : 99),
-  );
+  const ideas = sortByProgress(session.survivors, session);
 
   const handleComplete = (blueprint: string) => {
     if (!selectedIdea) return;
@@ -145,28 +143,31 @@ function BlueprintPageInner() {
                     const hasStressTest = !!session.stressTests[idea.id];
                     const hasPRD = !!session.prds[idea.id];
                     const hasBlueprint = !!session.blueprints[idea.id];
-                    const isStrongInvest = idea.verdict === 'STRONG_INVEST';
-                    const isPromoted = idea.promoted && idea.verdict === 'SOFT_PASS';
+                    const ideaScore = computeIdeaScore(idea, session);
+                    const sc = ideaScore ? ideaScore.score : null;
+                    const scColor = sc != null ? (sc >= 7 ? 'text-emerald-400' : sc >= 5 ? 'text-amber-400' : 'text-red-400') : 'text-zinc-500';
+                    const scBg = sc != null ? (sc >= 7 ? 'bg-emerald-500/10 border-emerald-500/30' : sc >= 5 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-red-500/10 border-red-500/30') : 'bg-zinc-800 border-zinc-700';
                     return (
                       <Card
                         key={idea.id}
                         onClick={() => setSelectedIdea(idea)}
-                        className={`p-4 cursor-pointer transition-all hover:scale-[1.01] ${
-                          isStrongInvest
-                            ? 'bg-emerald-900/20 border-emerald-700/50 hover:border-emerald-500'
-                            : isPromoted
-                              ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-600'
-                              : 'bg-emerald-900/10 border-emerald-800/40 hover:border-emerald-600'
-                        }`}
+                        className="p-4 cursor-pointer transition-all hover:scale-[1.01] bg-zinc-900/50 border-zinc-800 hover:border-zinc-600"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <div
-                              className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                                isStrongInvest ? 'bg-emerald-500/20' : isPromoted ? 'bg-zinc-800' : 'bg-emerald-500/10'
-                              }`}
-                            >
-                              <Trophy className={`w-5 h-5 ${isStrongInvest ? 'text-emerald-300' : isPromoted ? 'text-zinc-400' : 'text-emerald-400'}`} />
+                            <div className={`shrink-0 w-11 h-11 rounded-lg border flex flex-col items-center justify-center ${ideaScore?.preliminary ? 'bg-zinc-800/50 border-zinc-700' : scBg}`}>
+                              {ideaScore ? (
+                                <>
+                                  <span className={`text-base font-bold font-mono leading-none ${ideaScore.preliminary ? 'text-zinc-400' : scColor}`}>
+                                    {ideaScore.preliminary ? '~' : ''}{ideaScore.score}
+                                  </span>
+                                  <span className="text-[7px] text-zinc-500 font-mono leading-none mt-0.5">
+                                    {ideaScore.preliminary ? 'EST' : 'SCORE'}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-[9px] text-zinc-600 font-mono">—</span>
+                              )}
                             </div>
                             <div>
                               <h4 className="font-semibold text-zinc-100">{idea.title}</h4>
@@ -186,13 +187,6 @@ function BlueprintPageInner() {
                               </Badge>
                             )}
                             {hasBlueprint && <Badge variant="outline" className="text-purple-400 border-purple-400/50 text-xs">Blueprint</Badge>}
-                            {idea.verdict && (
-                              <Badge className={`${
-                                isPromoted ? 'bg-amber-700' : isStrongInvest ? 'bg-emerald-600' : 'bg-emerald-700'
-                              } text-white text-xs`}>
-                                {isPromoted ? 'Soft Pass' : isStrongInvest ? 'Strong Invest' : 'Invest'}
-                              </Badge>
-                            )}
                             <ChevronRight className="w-5 h-5 text-zinc-500" />
                           </div>
                         </div>

@@ -38,6 +38,10 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Select your preferred model from the toolbar dropdown, then start with Intake.
 
+### Model selection matters
+
+The quality of every phase — idea generation, VC critique, market research, stress testing, PRD, and blueprint — scales directly with model capability. Stronger models produce sharper ideas, more rigorous critiques, and more actionable deliverables. If you're doing a serious run, use the best model you have access to (e.g. Claude Opus over Haiku, Gemini Pro over Flash). You can always do exploratory runs with a cheaper model first, then re-run with a stronger one on ideas that survive.
+
 ## How It Works
 
 | Phase | What Happens |
@@ -51,7 +55,7 @@ Open [http://localhost:3000](http://localhost:3000). Select your preferred model
 
 All session data is stored in your browser's localStorage. Use the toolbar to export/import sessions as JSON.
 
-## Scoring & Confidence
+## Scoring
 
 Ideas accumulate structured signals as they move through the pipeline:
 
@@ -61,9 +65,11 @@ Ideas accumulate structured signals as they move through the pipeline:
 | **4-Dimension Scores** | VC Partner (Mine) | Moat, Founder Fit, Market Timing, Distribution Edge (1-10 each) |
 | **Market Confidence** | Data Miner (Verify) | STRONG, MODERATE, WEAK, INSUFFICIENT |
 | **Stress Severity** | Stress Tester (Verify) | CRITICAL, HIGH, MODERATE, LOW |
-| **Composite Health** | Dashboard (derived) | High Confidence, Promising, Caution, At Risk |
+| **Idea Score** | Dashboard (derived) | 0–10, evolves as phases complete |
 
-The **Composite Health** badge appears on the dashboard after at least one diligence phase completes. It combines the VC scores, market confidence adjustment, and stress severity adjustment into a single post-diligence confidence signal — displayed alongside the original VC verdict so the user sees both the initial call and where the idea stands after research.
+The **Idea Score** is a composite 0–10 score displayed across all pages. It starts from the average of the four VC dimension scores, then adjusts as diligence phases complete: Market Confidence shifts the score up or down (STRONG: +1, WEAK: -2), and Stress Severity does the same (LOW: +0.5, CRITICAL: -3). Before any diligence phase runs, the score is dampened by 0.7× and displayed as preliminary (e.g. `~5.3 EST`). After diligence, it shows the validated score with color coding (green 7+, amber 5-7, red <5).
+
+Ideas are sorted by phase progress first (more phases completed = higher rank), then by Idea Score as a tiebreaker.
 
 ## Stack
 

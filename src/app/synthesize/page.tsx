@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
+import { sortByProgress } from '@/lib/session';
 import { streamToText } from '@/lib/streaming';
 import { renderMarkdownBlock } from '@/lib/markdown-render';
 import { Package, Play, Square, Download, FileDown, Trophy, FileText, ChevronRight, Clock, ArrowLeft, Trash2, CheckCircle, Lock, ArrowRight } from 'lucide-react';
@@ -257,11 +258,7 @@ ${bodyHtml}
               </div>
             ) : (
               <div className="space-y-2 mb-4">
-                {[...session.survivors].sort((a, b) => {
-                  const scoreA = computeIdeaScore(a, parseMarketConfidence(session.verifications[a.id]), parseStressSeverity(session.stressTests[a.id]));
-                  const scoreB = computeIdeaScore(b, parseMarketConfidence(session.verifications[b.id]), parseStressSeverity(session.stressTests[b.id]));
-                  return scoreB - scoreA;
-                }).map((s) => {
+                {sortByProgress(session.survivors, session).map((s) => {
                   const hasResearch = !!session.verifications[s.id];
                   const hasStress = !!session.stressTests[s.id];
                   const hasPrd = !!session.prds[s.id];

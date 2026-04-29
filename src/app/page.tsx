@@ -317,8 +317,6 @@ export default function Home() {
                       const ideaScoreResult = computeIdeaScore(s, confidence, severity);
                       const shaped = !!session.prds[s.id];
                       const blueprinted = !!session.blueprints[s.id];
-                      const isStrong = s.verdict === 'STRONG_INVEST';
-                      const isPromoted = s.promoted && s.verdict === 'SOFT_PASS';
                       const isExpanded = expandedSurvivor === s.id;
 
                       const scores = [
@@ -331,13 +329,7 @@ export default function Home() {
                       return (
                         <div
                           key={s.id}
-                          className={`rounded-lg border px-4 py-3 transition-colors cursor-pointer ${
-                            isStrong
-                              ? 'bg-emerald-900/10 border-emerald-800/50'
-                              : isPromoted
-                                ? 'bg-zinc-950 border-zinc-800'
-                                : 'bg-emerald-900/5 border-emerald-800/30'
-                          }`}
+                          className="rounded-lg border px-4 py-3 transition-colors cursor-pointer bg-zinc-900/50 border-zinc-800 hover:border-zinc-600"
                           onClick={() => setExpandedSurvivor(isExpanded ? null : s.id)}
                         >
                           {/* Top row: score + title + verdict + actions */}
@@ -361,11 +353,6 @@ export default function Home() {
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm text-zinc-200 font-medium truncate">{s.title}</span>
-                                  <Badge className={`text-[10px] whitespace-nowrap shrink-0 ${
-                                    isPromoted ? 'bg-amber-700' : isStrong ? 'bg-emerald-600' : 'bg-emerald-700'
-                                  } text-white`}>
-                                    {isPromoted ? 'SOFT PASS' : isStrong ? 'STRONG INVEST' : 'INVEST'}
-                                  </Badge>
                                 </div>
                                 {s.oneLiner && (
                                   <div className="text-xs text-zinc-500 truncate italic mt-0.5">&quot;{s.oneLiner}&quot;</div>
