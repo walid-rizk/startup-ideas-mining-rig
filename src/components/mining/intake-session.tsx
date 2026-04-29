@@ -1,7 +1,7 @@
 'use client';
 
 import { useChat } from 'ai/react';
-import { useRef, useEffect, useState, useCallback, ChangeEvent } from 'react';
+import { useRef, useEffect, useState, useCallback, ChangeEvent, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,11 +9,28 @@ import { Send, Terminal, Loader2, AlertCircle, Paperclip, FileText, X, CheckCirc
 import { useSession } from '@/lib/session-context';
 import { streamToText } from '@/lib/streaming';
 
+const MessageBubble = memo(function MessageBubble({ role, content }: { role: string; content: string }) {
+  return (
+    <div
+      className={`max-w-[80%] rounded-lg p-3 text-sm font-mono whitespace-pre-wrap ${
+        role === 'user'
+          ? 'bg-emerald-900/20 text-emerald-100 border border-emerald-800'
+          : 'bg-zinc-900 text-zinc-300 border border-zinc-800'
+      }`}
+    >
+      <div className={`text-xs mb-2 ${role === 'user' ? 'text-emerald-400' : 'text-cyan-400'}`}>
+        {role === 'user' ? '> YOU' : '( ? _ ? ) INTERVIEWER'}
+      </div>
+      {content}
+    </div>
+  );
+});
+
 const WELCOME_MESSAGE = {
   id: 'welcome-1',
   role: 'assistant' as const,
   content:
-    "Welcome to the Startup Ideas Mining Rig. I am your Interviewer. I need to understand your background and goals to build your Founder Context.\n\nYou can either:\n• Answer my questions directly\n• Upload your resume (PDF, TXT, or DOCX) using the 📎 button\n• Share your LinkedIn profile URL and I'll look it up\n\nShall we begin?",
+    "Welcome to the Startup Ideas Mining Rig. I am your Interviewer. I need to understand your background and goals to build your Founder Context.\n\nYou can either:\n• Answer my questions directly\n• Upload your resume (PDF, TXT, or DOCX) using the 📎 button\n• Share your LinkedIn profile URL (e.g. linkedin.com/in/yourname)\n\nShall we begin?",
 };
 
 export default function IntakeSession() {
@@ -104,14 +121,36 @@ export default function IntakeSession() {
   }, [messages, isLoading]);
 
   const prevCountRef = useRef(messages.length);
+  const lastScrollRef = useRef(0);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    const now = Date.now();
     const grew = messages.length > prevCountRef.current;
     prevCountRef.current = messages.length;
     const last = messages[messages.length - 1];
+
     if (grew && last?.role === 'assistant' && lastAssistantRef.current) {
       lastAssistantRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } else {
+      lastScrollRef.current = now;
+      return;
+    }
+
+    if (grew) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      lastScrollRef.current = now;
+      return;
+    }
+
+    // During streaming: throttle to ~200ms, only auto-scroll if user is near the bottom
+    if (isLoading && last?.role === 'assistant') {
+      if (now - lastScrollRef.current < 200) return;
+      lastScrollRef.current = now;
+      const container = chatContainerRef.current;
+      if (!container) return;
+      const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+      if (nearBottom) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
     }
   }, [messages, isLoading]);
 
@@ -158,12 +197,27 @@ export default function IntakeSession() {
     }
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const linkedinUrlRegex = /https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w-]+\/?/i;
+
+  const fetchLinkedIn = async (url: string): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/fetch-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) return null;
+      return json.text as string;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (attachedFile) {
-      // Embed text content with clear delimiters — no filename or emoji that
-      // could trigger the model's "I can't read files" heuristic.
       const preamble = input.trim()
         ? `${input}\n\n`
         : 'Here is my resume text. Please use it to build my Founder Context.\n\n';
@@ -173,13 +227,38 @@ export default function IntakeSession() {
       append({ role: 'user', content: message });
       setAttachedFile(null);
 
-      // Clear the text input
       const inputEvent = { target: { value: '' } } as ChangeEvent<HTMLInputElement>;
       handleInputChange(inputEvent);
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
     } else if (input.trim()) {
-      handleSubmit(e);
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      const linkedinMatch = input.match(linkedinUrlRegex);
+      if (linkedinMatch) {
+        setFileLoading(true);
+        const profileText = await fetchLinkedIn(linkedinMatch[0]);
+        setFileLoading(false);
+
+        if (profileText) {
+          const otherText = input.replace(linkedinMatch[0], '').trim();
+          const preamble = otherText
+            ? `${otherText}\n\n`
+            : 'Here is my LinkedIn profile. Please use it to build my Founder Context.\n\n';
+
+          append({ role: 'user', content: `${preamble}--- LINKEDIN PROFILE ---\n${profileText}\n--- END LINKEDIN PROFILE ---` });
+
+          const inputEvent = { target: { value: '' } } as ChangeEvent<HTMLInputElement>;
+          handleInputChange(inputEvent);
+          if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        } else {
+          append({ role: 'user', content: `I tried sharing my LinkedIn profile (${linkedinMatch[0]}) but it couldn't be fetched automatically. Could you ask me the key questions to build my Founder Context instead?` });
+
+          const inputEvent = { target: { value: '' } } as ChangeEvent<HTMLInputElement>;
+          handleInputChange(inputEvent);
+          if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        }
+      } else {
+        handleSubmit(e);
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      }
     }
   };
 
@@ -201,12 +280,13 @@ export default function IntakeSession() {
         </div>
       </div>
 
-      {/* Chat Area - Native scroll */}
+      {/* Chat Area */}
       <div
+        ref={chatContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4"
-        style={{ scrollBehavior: 'smooth' }}
       >
         {messages.map((m, idx) => {
+          const isLast = idx === messages.length - 1;
           const isLastAssistant = m.role === 'assistant' && idx === [...messages].reduce((last, msg, i) => msg.role === 'assistant' ? i : last, -1);
           return (
           <div
@@ -214,19 +294,7 @@ export default function IntakeSession() {
             ref={isLastAssistant ? lastAssistantRef : undefined}
             className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            <div
-              className={`max-w-[80%] rounded-lg p-3 text-sm font-mono whitespace-pre-wrap ${
-                m.role === 'user'
-                  ? 'bg-emerald-900/20 text-emerald-100 border border-emerald-800'
-                  : 'bg-zinc-900 text-zinc-300 border border-zinc-800'
-              }`}
-            >
-              {/* Role label */}
-              <div className={`text-xs mb-2 ${m.role === 'user' ? 'text-emerald-400' : 'text-cyan-400'}`}>
-                {m.role === 'user' ? '> YOU' : '( ? _ ? ) INTERVIEWER'}
-              </div>
-              {m.content}
-            </div>
+            <MessageBubble role={m.role} content={m.content} />
           </div>
           );
         })}

@@ -29,6 +29,7 @@ import {
   FileText,
   Code2,
   Flame,
+  Gem,
 } from 'lucide-react';
 
 function parseStressSeverity(report: string | undefined): 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null {
@@ -688,8 +689,9 @@ function LifetimeStats({
 function EmptyState() {
   return (
     <Card className="bg-gradient-to-br from-zinc-900 to-zinc-900/50 border-zinc-800 p-10 text-center">
-      <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 mx-auto mb-6 flex items-center justify-center">
-        <Terminal className="w-8 h-8 text-zinc-900" />
+      <div className="w-16 h-16 rounded-xl bg-zinc-900 border border-emerald-500/30 mx-auto mb-6 flex items-center justify-center relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/20 to-cyan-500/10" />
+        <Gem className="w-8 h-8 text-emerald-400 relative z-10" />
       </div>
       <h2 className="text-2xl font-semibold text-zinc-100 mb-3">Welcome to the Rig</h2>
       <p className="text-sm text-zinc-400 max-w-xl mx-auto leading-relaxed mb-6">
