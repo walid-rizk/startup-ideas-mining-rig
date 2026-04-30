@@ -38,7 +38,7 @@ interface ThesisFields {
   whyFounder: string;
   targetMarket: string;
   customer: string;
-  ideaSurface: string[];
+  scope: string;
   rulesOut: string;
 }
 
@@ -60,9 +60,6 @@ function parseThesisCandidate(output: string, thesisNumber: number): ThesisField
     return m?.[1]?.trim().replace(/\*+/g, '').trim() ?? '';
   };
 
-  const ideaSection = thesisBlock.match(/\*\*Idea Surface:?\*\*[\s\S]*?(?=\n-\s\*\*|\n##|$)/i)?.[0] ?? '';
-  const ideas = [...ideaSection.matchAll(/^\s*[-*•]\s+(.+)/gm)].map(m => m[1].trim());
-
   return {
     name,
     coreBet: extract('Core Bet'),
@@ -70,7 +67,7 @@ function parseThesisCandidate(output: string, thesisNumber: number): ThesisField
     whyFounder: extract('Why This Founder'),
     targetMarket: extract('Target Market'),
     customer: extract('Customer'),
-    ideaSurface: ideas,
+    scope: extract('Scope') || extract('Idea Surface'),
     rulesOut: extract('Rules Out'),
   };
 }
@@ -371,7 +368,7 @@ export default function IntakePage() {
                       >
                         {/* Compact summary — always visible */}
                         <div
-                          className="p-4 cursor-pointer flex-1"
+                          className="p-4 cursor-pointer"
                           onClick={() => setThesesExpanded(!thesesExpanded)}
                         >
                           <div className="flex items-center justify-between mb-2">
@@ -401,23 +398,12 @@ export default function IntakePage() {
                             {fields.whyFounder && <div><span className="text-zinc-500 font-mono">WHY YOU:</span> <span className="text-zinc-300">{fields.whyFounder}</span></div>}
                             {fields.targetMarket && <div><span className="text-zinc-500 font-mono">TARGET:</span> <span className="text-zinc-300">{fields.targetMarket}</span></div>}
                             {fields.customer && <div><span className="text-zinc-500 font-mono">CUSTOMER:</span> <span className="text-zinc-300">{fields.customer}</span></div>}
+                            {fields.scope && <div><span className="text-zinc-500 font-mono">SCOPE:</span> <span className="text-zinc-300">{fields.scope}</span></div>}
                             {fields.rulesOut && <div><span className="text-zinc-500 font-mono">RULES OUT:</span> <span className="text-zinc-300">{fields.rulesOut}</span></div>}
-                            {fields.ideaSurface.length > 0 && (
-                              <div className="pt-1.5 border-t border-zinc-800 mt-1">
-                                <span className="text-zinc-500 font-mono">IDEA SURFACE:</span>
-                                <ul className="mt-1 space-y-0.5">
-                                  {fields.ideaSurface.map((idea, idx) => (
-                                    <li key={idx} className="text-zinc-400 flex gap-1.5">
-                                      <span className="text-zinc-600 shrink-0">▸</span>
-                                      {idea}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
                           </div>
                         )}
 
+                        <div className="flex-1" />
                         {/* Select button */}
                         <div className="px-4 pb-3">
                           <button

@@ -94,18 +94,20 @@ If constraints are so tight that both theses would be minor variants, say so in 
 
 ### Thesis structure — each thesis needs
 
+Every field has a hard word cap. Opus-class models: do not exceed these limits. A thesis should fit on an index card.
+
 - **Name** (5–10 words, specific)
-- **Core bet** (one sentence — what you believe about the world)
-- **Why now** (one sentence — the macro shift that makes this moment uniquely right)
-- **Why this founder** (1–2 sentences — the founder-thesis fit, citing specific Unfair Advantages by name)
-- **Target market** (one sentence — what sector/vertical this plays in; must respect any `Concrete:` or `Constrained:` Target)
-- **Customer** (one sentence — persona + buyer archetype; must respect any `Concrete:` or `Constrained:` Customer)
-- **Idea surface** (3 example idea shapes — one-liners, not full ideas)
-- **What it rules out** (one sentence — what ideas this thesis rejects)
+- **Core Bet** (one sentence, max 20 words — the belief about the world you're wagering on)
+- **Why Now** (one sentence, max 25 words — the macro shift that makes this moment uniquely right)
+- **Why This Founder** (1–2 sentences, max 40 words — the founder-thesis fit, citing specific Unfair Advantages by name)
+- **Target Market** (one sentence, max 20 words — sector/vertical; must respect any `Concrete:` or `Constrained:` Target)
+- **Customer** (one sentence, max 20 words — persona + buyer archetype; must respect any `Concrete:` or `Constrained:` Customer)
+- **Scope** (one sentence, max 25 words — what's in and what's out, without prescribing specific idea shapes)
+- **Rules Out** (one sentence, max 20 words — what ideas this thesis rejects)
 
 ## Communication Style
 
-- **Sharp, not exhaustive.** Two tight theses beat five vague ones.
+- **Index-card brevity.** Each thesis should feel like a direction, not a business plan. Respect word caps — every extra word dilutes the lens.
 - **Opinionated.** End with a recommendation — which thesis you'd pick and why, based on Win Condition + strongest Unfair Advantage.
 - **Honest when you're boxed in.** If the constraints force both theses to be close variants, say so explicitly in the recommendation. Don't pretend.
 - **Respect the founder's agency.** After your recommendation, hand the decision back: "Pick 1 or 2 — or describe your own and we'll sharpen it."
@@ -129,16 +131,13 @@ If constraints are so tight that both theses would be minor variants, say so in 
 [2–4 bullets synthesizing what the Additional Thesis Signals section told you about this founder's taste. Omit this block entirely if the Founder Context had no Additional Thesis Signals.]
 
 ## Thesis 1: [Name] — The Grounded Pick
-- **Core Bet:** [one sentence]
-- **Why Now:** [the macro shift that makes 2025–2026 the right moment]
-- **Why This Founder:** [1–2 sentences, citing specific Unfair Advantages by name]
-- **Target Market:** [one sentence]
-- **Customer:** [one sentence — persona + buyer archetype]
-- **Idea Surface:**
-  - [one-liner idea 1]
-  - [one-liner idea 2]
-  - [one-liner idea 3]
-- **Rules Out:** [one sentence]
+- **Core Bet:** [max 20 words]
+- **Why Now:** [max 25 words]
+- **Why This Founder:** [max 40 words, cite Unfair Advantages by name]
+- **Target Market:** [max 20 words]
+- **Customer:** [max 20 words — persona + buyer archetype]
+- **Scope:** [max 25 words — what's in and what's out]
+- **Rules Out:** [max 20 words]
 
 ## Thesis 2: [Name] — The Wild Card
 [same structure]
@@ -159,7 +158,7 @@ This means the `futurist` skill downstream will see three `Concrete:` fields and
 ## Self-Check Before Emitting
 
 - [ ] Exactly 2 theses, labeled "The Grounded Pick" and "The Wild Card."
-- [ ] Each thesis has all 8 fields (Name, Core Bet, Why Now, Why This Founder, Target Market, Customer, Idea Surface, Rules Out).
+- [ ] Each thesis has all 8 fields (Name, Core Bet, Why Now, Why This Founder, Target Market, Customer, Scope, Rules Out) and respects word caps.
 - [ ] The `## Constraints Read From Founder Context` section is present and explicitly lists how each prefix was interpreted.
 - [ ] No thesis violates a `Concrete:` or `Excludes:` signal.
 - [ ] No thesis violates Win Condition scale (no $100M plays for Lifestyle founders; no sub-$10M-ARR plays for Venture Scale).
