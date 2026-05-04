@@ -165,7 +165,11 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   const [currentBatch, setCurrentBatch] = useState(() => getMiningStatus().currentBatch);
   const [maxBatches] = useState(3);
   const [survivors, setSurvivors] = useState<IdeaResult[]>(() =>
-    initialSurvivors ? fromPublicIdeas(initialSurvivors) : []
+    initialSurvivors ? fromPublicIdeas(initialSurvivors).sort((a, b) => {
+      const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
+      const rankB = b.verdict ? VERDICT_CONFIG[b.verdict].rank : 99;
+      return rankA - rankB;
+    }) : []
   );
   const [allIdeas, setAllIdeas] = useState<IdeaResult[]>(() =>
     initialAllIdeas ? fromPublicIdeas(initialAllIdeas) : []
@@ -239,7 +243,11 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   const targetSurvivors = 4;
 
   const resyncFromProps = useCallback(() => {
-    setSurvivors(initialSurvivors ? fromPublicIdeas(initialSurvivors) : []);
+    setSurvivors(initialSurvivors ? fromPublicIdeas(initialSurvivors).sort((a, b) => {
+      const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
+      const rankB = b.verdict ? VERDICT_CONFIG[b.verdict].rank : 99;
+      return rankA - rankB;
+    }) : []);
     setAllIdeas(initialAllIdeas ? fromPublicIdeas(initialAllIdeas) : []);
     setPhase(initialSurvivors && initialSurvivors.length > 0 ? 'complete' : 'idle');
     setMiningOutput({ generatedIdeas: '', critiqueOutput: '', error: null });
@@ -1056,6 +1064,11 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
             {/* Failed ideas (Soft Pass and Strong Pass) — exclude promoted */}
             {allIdeas
               .filter(i => i.verdict && !VERDICT_CONFIG[i.verdict]?.survives && !survivors.some(s => s.id === i.id))
+              .sort((a, b) => {
+                const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
+                const rankB = b.verdict ? VERDICT_CONFIG[b.verdict].rank : 99;
+                return rankA - rankB;
+              })
               .map((idea) => {
                 const config = idea.verdict ? VERDICT_CONFIG[idea.verdict] : null;
                 const isSoftPass = idea.verdict === 'SOFT_PASS';
