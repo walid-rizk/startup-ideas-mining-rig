@@ -30,7 +30,7 @@ const WELCOME_MESSAGE = {
   id: 'welcome-1',
   role: 'assistant' as const,
   content:
-    "Welcome to the Startup Ideas Mining Rig. I am your Interviewer. I need to understand your background and goals to build your Founder Context.\n\nYou can either:\n• Answer my questions directly\n• Upload your resume (PDF, TXT, or DOCX) using the 📎 button\n• Share your LinkedIn profile URL (e.g. linkedin.com/in/yourname)\n\nShall we begin?",
+    "Welcome to the Startup Ideas Mining Rig. I am your Interviewer. I need to understand your background and goals to build your Founder Context.\n\nYou can either:\n• Answer my questions directly\n• Upload your resume (PDF, TXT, or DOCX) using the 📎 button\n\nShall we begin?",
 };
 
 export default function IntakeSession() {
