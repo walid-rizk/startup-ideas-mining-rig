@@ -93,13 +93,13 @@ function computeIdeaScore(
     score += adj[marketConfidence];
   }
   if (hasStress) {
-    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: 0.5 };
+    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: 0, LOW: 0.5 };
     score += adj[stressSeverity];
   }
 
   const preliminary = !hasMarket && !hasStress;
   if (preliminary) {
-    score = score * 0.7;
+    score = score * 0.85;
   }
 
   return { score: Math.round(Math.max(0, Math.min(10, score)) * 10) / 10, preliminary };

@@ -251,12 +251,12 @@ export function computeIdeaScore(
     score += adj[conf!] ?? 0;
   }
   if (hasStress) {
-    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: 0.5 };
+    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: 0, LOW: 0.5 };
     score += adj[sev!] ?? 0;
   }
 
   const preliminary = !hasMarket && !hasStress;
-  if (preliminary) score = score * 0.7;
+  if (preliminary) score = score * 0.85;
 
   return { score: Math.round(Math.max(0, Math.min(10, score)) * 10) / 10, preliminary };
 }

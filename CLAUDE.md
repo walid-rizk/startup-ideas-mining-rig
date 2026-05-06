@@ -61,7 +61,7 @@ Ideas accumulate structured signals across phases:
 - **VC Partner (Mine):** verdict + 4-dimension scores (Moat, Founder Fit, Market Timing, Distribution Edge, each 1-10)
 - **Data Miner (Verify):** **Market Confidence** rating (STRONG / MODERATE / WEAK / INSUFFICIENT) — emitted as the first line after the report title, parsed by `parseMarketConfidence()` in both `verify-session.tsx` and `page.tsx`
 - **Stress Tester (Verify):** **Stress Severity** rating (CRITICAL / HIGH / MODERATE / LOW) — emitted as `**Overall: [LEVEL]**`, parsed by `parseStressSeverity()` in both `stress-test-session.tsx` and `page.tsx`
-- **Dashboard (derived):** **Idea Score** (0–10) — computed by `computeIdeaScore()` in `page.tsx` from the average of VC scores, adjusted by market confidence (STRONG: +1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5) and stress severity (CRITICAL: -3, HIGH: -1.5, MODERATE: -0.5, LOW: +0.5). Before any diligence phase completes, the score is dampened by 0.7× and displayed as preliminary (`~5.3 EST`). After diligence, actual adjustments replace the penalty. Survivors are sorted by Idea Score (highest first) on the dashboard and synthesize pages.
+- **Dashboard (derived):** **Idea Score** (0–10) — computed by `computeIdeaScore()` in `page.tsx` from the average of VC scores, adjusted by market confidence (STRONG: +1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5) and stress severity (CRITICAL: -3, HIGH: -1.5, MODERATE: 0, LOW: +0.5). Before any diligence phase completes, the score is dampened by 0.85× and displayed as preliminary (`~5.5 EST`). After diligence, actual adjustments replace the penalty. Survivors are sorted by Idea Score (highest first) on the dashboard and synthesize pages.
 
 ### Pages
 | Route | Component driver | Purpose |
