@@ -68,7 +68,7 @@ Ideas accumulate structured signals across phases:
 | --- | --- | --- |
 | `/` | inline | Dashboard — thesis headline, survivors with Idea Score + expandable TLDR + clickable pipeline phases (deep-link to specific idea via `?idea=<id>`), next-step nudge |
 | `/intake` | `IntakeSession` + inline | Multi-turn chat to build founder context; also hosts the Thesis generator and Chosen Thesis editor (combined phase) |
-| `/mine` | `WarRoom` | Gauntlet loop: generate + critique until 4 survivors or 3 batches. Survivors panel has a draggable resize handle (persisted to localStorage) |
+| `/mine` | `WarRoom` | Gauntlet loop: generate + critique until target survivors (default 4) or max batches (default 3), both user-configurable. Survivors panel has a draggable resize handle (persisted to localStorage) |
 | `/verify` | `VerifySession` + `StressTestSession` | Per-survivor due diligence: market research (data-miner) + stress test (devil's advocate) in tabs |
 | `/shape` | `ShapeSession` | Per-survivor PRD |
 | `/blueprint` | `BlueprintSession` | Per-survivor technical plan (displayed as "Architect") |
@@ -80,7 +80,7 @@ Implemented in `src/components/mining/war-room.tsx`:
 2. POST to `/api/mining/critique` with those ideas → vc-partner returns memos (`## MEMO — IDEA N.M`) with structured fields.
 3. `parseVerdicts()` extracts per-idea structured fields using position-based slicing between `IDEA N.M` markers (do not regress to split-based parsing — it broke field isolation).
 4. Filter: keep `STRONG_INVEST` + `INVEST`, discard `SOFT_PASS` + `STRONG_PASS`.
-5. Repeat until ≥4 survivors OR 3 batches completed.
+5. Repeat until target survivors reached (default 4) OR max batches completed (default 3). Both are user-configurable in the UI.
 
 ## Conventions
 - **Output format:** every skill emits markdown. The vc-partner memo contract is the most structured — do not break field names without updating `parseVerdicts` and `IdeaResult` types in lockstep. The data-miner emits a `**Market Confidence: LEVEL**` line as the first line after the title (parsed by UI). The stress-tester emits `**Overall: LEVEL**` (parsed by UI).
@@ -105,7 +105,7 @@ You can invoke any skill directly in this terminal to smoke-test output without 
 | --- | --- |
 | `run intake` | Act as `interviewer`. Ask 3–5 high-leverage questions. On answer, synthesize into a Founder Context using the `thesis-builder` contract. |
 | `run thesis` | Act as `thesis-builder`. Given a Founder Context (pasted by user), output a structured Founder Thesis. |
-| `run mine` | Act as `futurist` for 1 batch (3 ideas, `## IDEA N.1..N.3`), then `vc-partner` (memos with verdicts). Filter to STRONG_INVEST/INVEST. Loop up to 3 batches or 4 survivors. |
+| `run mine` | Act as `futurist` for 1 batch (3 ideas, `## IDEA N.1..N.3`), then `vc-partner` (memos with verdicts). Filter to STRONG_INVEST/INVEST. Loop up to max batches (default 3) or target survivors (default 4). |
 | `run spark` | Act as `futurist` for one batch. Output 3 ideas. No critique. |
 | `run roast <ideas>` | Act as `vc-partner`. Critique the provided ideas per the memo contract. |
 | `run verify <idea>` | Act as `data-miner`. Fact-check market size / competitors. Use WebSearch. |

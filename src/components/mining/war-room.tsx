@@ -81,6 +81,7 @@ interface WarRoomProps {
   userContext: string;
   modelChoice: ModelChoice;
   onComplete?: (survivors: PublicIdeaResult[], allIdeas: PublicIdeaResult[]) => void;
+  onBatchComplete?: (survivors: PublicIdeaResult[], allIdeas: PublicIdeaResult[]) => void;
   onDiscard?: (idea: PublicIdeaResult) => void;
   onRestore?: (idea: PublicIdeaResult) => void;
   onDeletePermanently?: (idea: PublicIdeaResult) => void;
@@ -156,14 +157,14 @@ function toPublicIdeas(ideas: IdeaResult[]): PublicIdeaResult[] {
   }));
 }
 
-export default function WarRoom({ userContext, modelChoice, onComplete, onDiscard, onRestore, onDeletePermanently, initialSurvivors, initialAllIdeas, discardedIdeas: externalDiscarded }: WarRoomProps) {
+export default function WarRoom({ userContext, modelChoice, onComplete, onBatchComplete, onDiscard, onRestore, onDeletePermanently, initialSurvivors, initialAllIdeas, discardedIdeas: externalDiscarded }: WarRoomProps) {
   const [phase, setPhase] = useState<MiningPhase>(() => {
     const g = getMiningStatus();
     if (g.isRunning) return g.phase;
     return initialSurvivors && initialSurvivors.length > 0 ? 'complete' : 'idle';
   });
   const [currentBatch, setCurrentBatch] = useState(() => getMiningStatus().currentBatch);
-  const [maxBatches] = useState(3);
+  const [maxBatches, setMaxBatches] = useState(3);
   const [survivors, setSurvivors] = useState<IdeaResult[]>(() =>
     initialSurvivors ? fromPublicIdeas(initialSurvivors).sort((a, b) => {
       const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
@@ -186,6 +187,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
   const [customIdea, setCustomIdea] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
+  const critiqueRef = useRef<HTMLDivElement>(null);
   const ownRunRef = useRef(false);
   const globalMining = useMiningStatus();
 
@@ -240,7 +242,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  const targetSurvivors = 4;
+  const [targetSurvivors, setTargetSurvivors] = useState(4);
 
   const resyncFromProps = useCallback(() => {
     setSurvivors(initialSurvivors ? fromPublicIdeas(initialSurvivors).sort((a, b) => {
@@ -275,7 +277,13 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
     if (outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [generatedIdeas, critiqueOutput]);
+  }, [generatedIdeas]);
+
+  useEffect(() => {
+    if (critiqueRef.current) {
+      critiqueRef.current.scrollTop = critiqueRef.current.scrollHeight;
+    }
+  }, [critiqueOutput]);
 
   // Strip markdown formatting for clean display
   const stripMarkdown = (text: string): string => {
@@ -601,6 +609,8 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
         setSurvivors(mergedSurvivors);
         survivorsRef.current = mergedSurvivors;
 
+        onBatchComplete?.(toPublicIdeas(mergedSurvivors), toPublicIdeas(mergedAll));
+
         if ((mergedSurvivors.length - priorSurvivorCount) >= targetSurvivors) {
           break;
         }
@@ -835,6 +845,36 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
           </div>
         </div>
 
+        {/* Mining settings — subtle inline controls under Start Mining */}
+        {!isRunning && !globalMining.isRunning && (
+          <div className="flex flex-col items-end gap-1 mt-1.5 px-4 text-[11px] font-mono text-zinc-600">
+            <label className="flex items-center gap-1.5">
+              <span>batches</span>
+              <select
+                value={maxBatches}
+                onChange={(e) => setMaxBatches(Number(e.target.value))}
+                className="bg-transparent border border-zinc-800 rounded px-1.5 py-0.5 text-zinc-500 focus:outline-none focus:border-zinc-600 appearance-none text-center w-10 cursor-pointer hover:border-zinc-600"
+              >
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n} className="bg-zinc-900">{n}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span>target survivors</span>
+              <select
+                value={targetSurvivors}
+                onChange={(e) => setTargetSurvivors(Number(e.target.value))}
+                className="bg-transparent border border-zinc-800 rounded px-1.5 py-0.5 text-zinc-500 focus:outline-none focus:border-zinc-600 appearance-none text-center w-10 cursor-pointer hover:border-zinc-600"
+              >
+                {[1, 2, 3, 4, 5, 6, 8].map((n) => (
+                  <option key={n} value={n} className="bg-zinc-900">{n}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+
         {/* Custom idea submission */}
         {showCustomInput && !isRunning && (
           <div className="mt-4 bg-zinc-950 border border-zinc-800 rounded-lg p-3">
@@ -922,7 +962,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
               </Badge>
             )}
           </div>
-          <div className="h-[400px] overflow-y-auto bg-zinc-900/50 rounded-lg p-3 text-xs font-mono text-zinc-400 whitespace-pre-wrap">
+          <div ref={critiqueRef} className="h-[400px] overflow-y-auto bg-zinc-900/50 rounded-lg p-3 text-xs font-mono text-zinc-400 whitespace-pre-wrap">
             {critiqueOutput || (
               <span className="text-zinc-600">Waiting for ideas to critique...</span>
             )}
@@ -944,7 +984,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onDiscar
             <Trophy className={`w-4 h-4 ${survivors.length > 0 ? 'text-emerald-400' : 'text-zinc-500'}`} />
             <span className="font-mono text-sm text-zinc-300">SURVIVORS</span>
             <Badge variant="outline" className="text-emerald-400 border-emerald-400/50 text-xs">
-              {survivors.length} / {targetSurvivors}
+              {survivors.length}
             </Badge>
             {(survivors.length > 0 || allIdeas.length > 0) && !isRunning && (
               <button

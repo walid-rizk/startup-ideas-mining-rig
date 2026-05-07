@@ -97,6 +97,7 @@ export default function MinePage() {
               userContext={session.founderContext}
               modelChoice={session.modelChoice}
               onComplete={handleComplete}
+              onBatchComplete={handleComplete}
               onDiscard={handleDiscard}
               onRestore={handleRestore}
               onDeletePermanently={handleDeletePermanently}
@@ -110,7 +111,7 @@ export default function MinePage() {
 
       <footer className="border-t border-zinc-800 px-6 py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
-          <span>Mine (Spark &amp; Roast) • 3 Batches Max • 4 Survivors Target</span>
+          <span>Mine (Spark &amp; Roast)</span>
           <span>{session.modelChoice.provider} • {session.modelChoice.model}</span>
         </div>
       </footer>
