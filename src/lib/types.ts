@@ -43,7 +43,7 @@ export const DEFAULT_MODEL: ModelChoice = {
 };
 
 export const MODEL_OPTIONS: Array<ModelChoice & { label: string }> = [
-  { provider: "gemini", model: "gemini-2.5-flash", label: "Gemini 2.5 Flash (free tier)" },
+  { provider: "gemini", model: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
   { provider: "gemini", model: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
   { provider: "gemini", model: "gemini-3.0-flash", label: "Gemini 3.0 Flash" },
   { provider: "gemini", model: "gemini-3.0-pro", label: "Gemini 3.0 Pro" },
