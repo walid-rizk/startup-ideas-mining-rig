@@ -65,7 +65,7 @@ For each batch of 3 ideas:
    - Each idea must target a **different buyer persona** (e.g. don't put all three in front of the same "mid-market VP of Strategy").
    - Each idea must attack a **different workflow or pain point** (e.g. pricing, due diligence, and market entry are three variants of "strategy consulting" — that's not diverse enough).
    - If the founder's thesis is narrow (e.g. "AI for consulting"), diversify on the *type of customer* (SMB vs. enterprise vs. PE firms), the *industry vertical* (healthcare vs. manufacturing vs. financial services), or the *delivery model* (self-serve SaaS vs. marketplace vs. embedded tool).
-   - **Litmus test:** If you could rename all three ideas "[Founder's Domain] + AI for [Slightly Different Task]" and they'd all sound the same, you've failed. Start over.
+   - **Litmus test:** If you could rename all three ideas "[Founder's Domain] + AI for [Slightly Different Task]" and they'd all sound the same, you've failed. **Delete what you wrote and start over** before emitting — do not rationalize that "they're actually different" if a reader at a dinner party would group them as the same category.
 
 ### Cross-Batch Deduplication
 
@@ -95,7 +95,7 @@ Notice: not all of these are AI. AI is one lever among several.
 
 ## Output Contract
 
-Emit exactly 3 ideas. Each idea must use this exact header format so downstream parsers work: `## IDEA [batch].[n]:`. Do not change the header format — `parseVerdicts` in the app depends on it.
+Emit exactly 3 ideas. Each idea must use this exact header format so downstream parsers work: `## IDEA [batch].[n]:`. Do not change the header format — `parseIdeasFromText` in the app depends on it.
 
 ### The "Headline + Support" Rule (Non-Negotiable)
 

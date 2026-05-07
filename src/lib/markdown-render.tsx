@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { memo, useMemo, type ReactNode } from 'react';
 
 // Pulls out a leading `**TL;DR:** ...` line (if present) from a section body.
 // Returns { tldr, body } where tldr is the headline without the label, and body
@@ -172,3 +172,11 @@ export function renderMarkdownBlock(raw: string): ReactNode {
 
   return <div className="space-y-1">{blocks}</div>;
 }
+
+// Memoized component wrapper — re-renders only when `raw` changes.
+// Prefer this in hot render paths (streaming output, large markdown blobs)
+// where the parent re-renders frequently but the markdown is stable.
+export const MarkdownBlock = memo(function MarkdownBlock({ raw }: { raw: string }) {
+  const node = useMemo(() => renderMarkdownBlock(raw), [raw]);
+  return <>{node}</>;
+});

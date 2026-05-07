@@ -9,7 +9,11 @@ export async function POST(req: Request) {
 
   try {
     const parsed = new URL(url);
-    if (!parsed.hostname.includes("linkedin.com")) {
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return Response.json({ error: "Only http(s) URLs are supported" }, { status: 400 });
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (host !== "linkedin.com" && host !== "www.linkedin.com" && !host.endsWith(".linkedin.com")) {
       return Response.json({ error: "Only LinkedIn URLs are supported" }, { status: 400 });
     }
 

@@ -157,6 +157,233 @@ function toPublicIdeas(ideas: IdeaResult[]): PublicIdeaResult[] {
   }));
 }
 
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')  // Bold
+    .replace(/\*([^*]+)\*/g, '$1')       // Italic
+    .replace(/`([^`]+)`/g, '$1')         // Code
+    .replace(/^#+\s*/gm, '')             // Headers
+    .replace(/^\s*[-*]\s+/gm, '• ')      // List items
+    .trim();
+}
+
+function parseIdeasFromText(text: string, batchNum: number): IdeaResult[] {
+  const ideas: IdeaResult[] = [];
+  const ts = Date.now();
+
+  // Pattern matches: "## IDEA 1.1: Title" or "## IDEA 1: Title" or "### IDEA 1: Title"
+  const ideaSections = text.split(/(?=##\s*IDEA\s+\d+[\.:]\d*)/i).filter(s => s.trim());
+
+  for (let i = 0; i < ideaSections.length; i++) {
+    const section = ideaSections[i];
+    const headerMatch = section.match(/##\s*IDEA\s+(\d+)[\.:]\d*:?\s*(.+?)(?=\n)/i);
+    if (headerMatch) {
+      const title = headerMatch[2].trim().replace(/\*+$/, '').trim();
+      if (title && !ideas.find(idea => idea.title === title)) {
+        ideas.push({
+          id: `${batchNum}-${ideas.length + 1}-${ts}`,
+          title,
+          content: section.trim(),
+        });
+      }
+    }
+  }
+
+  // Fallback: try alternative patterns if no ideas found
+  if (ideas.length === 0) {
+    const altSections = text.split(/(?=###?\s*\d+\.)/i).filter(s => s.trim());
+    for (let i = 0; i < altSections.length; i++) {
+      const section = altSections[i];
+      const headerMatch = section.match(/###?\s*(\d+)\.\s*(.+?)(?=\n)/i);
+      if (headerMatch) {
+        const title = headerMatch[2].trim().replace(/\*+$/, '').trim();
+        if (title && !ideas.find(idea => idea.title === title)) {
+          ideas.push({
+            id: `${batchNum}-${ideas.length + 1}-${ts}`,
+            title,
+            content: section.trim(),
+          });
+        }
+      }
+    }
+  }
+
+  // Second fallback: look for "The Hook" pattern
+  if (ideas.length === 0) {
+    const hookPattern = /##\s*(.+?)\n([\s\S]*?)(?=##|$)/gi;
+    let match;
+    while ((match = hookPattern.exec(text)) !== null) {
+      const fullSection = match[0];
+      if (fullSection.includes('**The Hook**') || fullSection.includes('**Hook:**')) {
+        const title = match[1].replace(/^IDEA\s*\d+[\.:]\s*/i, '').trim();
+        if (title && !ideas.find(idea => idea.title === title)) {
+          ideas.push({
+            id: `${batchNum}-${ideas.length + 1}-${ts}`,
+            title,
+            content: fullSection.trim(),
+          });
+        }
+      }
+    }
+  }
+
+  return ideas;
+}
+
+function parseVerdicts(text: string, ideas: IdeaResult[]): IdeaResult[] {
+  // Position-based section isolation: find where each idea's memo starts
+  // in the raw text, sort by position, then slice between consecutive starts.
+  // This is far more robust than split+find, which fails silently when the
+  // model uses a non-standard header (e.g. `### MEMO`, `**MEMO...**`, no `##`).
+  const findIdeaStart = (idea: IdeaResult): number => {
+    const batchDotN = idea.id.replace('-', '.');
+    const escaped = batchDotN.replace('.', '\\.');
+    const candidates: RegExp[] = [
+      new RegExp(`^[ \\t]*#{1,4}[ \\t]*[^\\n]*MEMO[^\\n]*IDEA[ \\t]+${escaped}\\b`, 'mi'),
+      new RegExp(`^[ \\t]*#{1,4}[ \\t]*[^\\n]*IDEA[ \\t]+${escaped}\\b`, 'mi'),
+      new RegExp(`^[ \\t]*\\*\\*[^\\n]*IDEA[ \\t]+${escaped}[^\\n]*\\*\\*`, 'mi'),
+      new RegExp(`\\bIDEA[ \\t]+${escaped}\\b`, 'i'),
+    ];
+    for (const pat of candidates) {
+      const m = text.match(pat);
+      if (m && m.index !== undefined) {
+        const before = text.slice(0, m.index);
+        const lastNl = before.lastIndexOf('\n');
+        return lastNl + 1;
+      }
+    }
+    const titleIdx = text.indexOf(idea.title);
+    if (titleIdx >= 0) {
+      const before = text.slice(0, titleIdx);
+      const lastNl = before.lastIndexOf('\n');
+      return lastNl + 1;
+    }
+    return -1;
+  };
+
+  const starts = ideas
+    .map((idea) => ({ idea, start: findIdeaStart(idea) }))
+    .filter((p) => p.start >= 0)
+    .sort((a, b) => a.start - b.start);
+
+  const sectionMap = new Map<string, string>();
+  for (let i = 0; i < starts.length; i++) {
+    const end = i + 1 < starts.length ? starts[i + 1].start : text.length;
+    sectionMap.set(starts[i].idea.id, text.slice(starts[i].start, end).trim());
+  }
+
+  const extractField = (section: string, fieldName: string): string => {
+    const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(
+      `\\*\\*${escaped}:?\\*\\*\\s*([^\\n]+(?:\\n(?!\\s*(?:\\*\\*|#))[^\\n]*)*)`,
+      'i'
+    );
+    const match = section.match(pattern);
+    return match?.[1]?.trim().replace(/\*+/g, '').trim() ?? '';
+  };
+
+  return ideas.map(idea => {
+    const section = sectionMap.get(idea.id) ?? '';
+
+    let verdict: Verdict | undefined;
+    const verdictLine = section.match(/\*\*Verdict:\*\*\s*([\w_]+)/i);
+    const vv = verdictLine?.[1]?.toUpperCase().replace(/\s+/g, '_');
+    if (vv === 'STRONG_INVEST') verdict = 'STRONG_INVEST';
+    else if (vv === 'INVEST') verdict = 'INVEST';
+    else if (vv === 'SOFT_PASS') verdict = 'SOFT_PASS';
+    else if (vv === 'STRONG_PASS') verdict = 'STRONG_PASS';
+
+    if (!verdict) {
+      if (/strong[\s_]invest/i.test(section)) verdict = 'STRONG_INVEST';
+      else if (/\binvest\b/i.test(section)) verdict = 'INVEST';
+      else if (/soft[\s_]pass/i.test(section)) verdict = 'SOFT_PASS';
+      else if (/strong[\s_]pass|(?<!soft[\s_])\bpass\b/i.test(section)) verdict = 'STRONG_PASS';
+    }
+
+    const parseScore = (label: string): number => {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const m = section.match(new RegExp(`\\*\\*${escaped}[^*]*\\*\\*:?\\s*(\\d+)`, 'i'))
+        || section.match(new RegExp(`${escaped}[^:\\n]*:?\\s*(\\d+)`, 'i'));
+      return m ? parseInt(m[1]) : 0;
+    };
+    const moatVal = parseScore('Moat Score');
+    const fitVal = parseScore('Founder Fit Score');
+    const timingVal = parseScore('Market Timing Score');
+    const distVal = parseScore('Distribution Edge Score');
+
+    const parseScoreRationale = (scoreLabel: string): string => {
+      const escaped = scoreLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const line = section.match(
+        new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+[^\\n]*`, 'i'),
+      )?.[0] ?? '';
+      const r = line
+        .replace(new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+(?:/10)?`, 'i'), '')
+        .replace(/^\s*[—–\-:]\s*/, '')
+        .trim();
+      return r;
+    };
+    const moatRationale = parseScoreRationale('Moat Score');
+    const founderFitRationale = parseScoreRationale('Founder Fit Score');
+    const marketTimingRationale = parseScoreRationale('Market Timing Score');
+    const distributionEdgeRationale = parseScoreRationale('Distribution Edge Score');
+
+    const extractBulletList = (fieldName: string): string => {
+      const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const m = section.match(
+        new RegExp(
+          `\\*\\*${escaped}:?\\*\\*\\s*\\n?((?:\\s*[-*•][^\\n]*\\n?)+)`,
+          'i',
+        ),
+      );
+      if (m?.[1]) return m[1].trim();
+      return extractField(section, fieldName);
+    };
+
+    const oneLiner = extractField(section, 'One-Liner') || extractField(section, 'One Liner');
+    const bullCase = extractField(section, 'Bull Case');
+    const bearCase = extractField(section, 'Bear Case');
+    const comparableCompanies = extractField(section, 'Comparable Companies');
+    const marketSizing = extractField(section, 'Market Sizing');
+    const unitEconomics =
+      extractField(section, 'Unit Economics First-Cut') ||
+      extractField(section, 'Unit Economics');
+    const hairOnFireCheck = extractField(section, 'Hair-on-Fire Check');
+    const distributionPlan = extractField(section, 'Distribution Plan');
+    const keyRisks = extractBulletList('Key Risks');
+    const whatWouldChangeMind =
+      extractField(section, 'What Would Change My Mind') ||
+      extractField(section, "What Would Change My Mind");
+    const verdictRationale = extractField(section, 'Verdict Rationale');
+
+    return {
+      ...idea,
+      verdict,
+      critique: section,
+      oneLiner,
+      bullCase,
+      bearCase,
+      comparableCompanies,
+      marketSizing,
+      unitEconomics,
+      hairOnFireCheck,
+      distributionPlan,
+      keyRisks,
+      whatWouldChangeMind,
+      verdictRationale,
+      moatRationale,
+      founderFitRationale,
+      marketTimingRationale,
+      distributionEdgeRationale,
+      scores: {
+        moat: moatVal,
+        founderFit: fitVal,
+        marketTiming: timingVal,
+        distributionEdge: distVal,
+      },
+    };
+  });
+}
+
 export default function WarRoom({ userContext, modelChoice, onComplete, onBatchComplete, onDiscard, onRestore, onDeletePermanently, initialSurvivors, initialAllIdeas, discardedIdeas: externalDiscarded }: WarRoomProps) {
   const [phase, setPhase] = useState<MiningPhase>(() => {
     const g = getMiningStatus();
@@ -285,252 +512,6 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
       critiqueRef.current.scrollTop = critiqueRef.current.scrollHeight;
     }
   }, [critiqueOutput]);
-
-  // Strip markdown formatting for clean display
-  const stripMarkdown = (text: string): string => {
-    return text
-      .replace(/\*\*([^*]+)\*\*/g, '$1')  // Bold
-      .replace(/\*([^*]+)\*/g, '$1')       // Italic
-      .replace(/`([^`]+)`/g, '$1')         // Code
-      .replace(/^#+\s*/gm, '')             // Headers
-      .replace(/^\s*[-*]\s+/gm, '• ')      // List items
-      .trim();
-  };
-
-
-  const parseIdeasFromText = (text: string, batchNum: number): IdeaResult[] => {
-    const ideas: IdeaResult[] = [];
-    const ts = Date.now();
-
-    // Split text by idea headers to capture full content
-    // Pattern matches: "## IDEA 1.1: Title" or "## IDEA 1: Title" or "### IDEA 1: Title"
-    const ideaSections = text.split(/(?=##\s*IDEA\s+\d+[\.:]\d*)/i).filter(s => s.trim());
-
-    for (let i = 0; i < ideaSections.length; i++) {
-      const section = ideaSections[i];
-
-      // Extract title from the header
-      const headerMatch = section.match(/##\s*IDEA\s+(\d+)[\.:]\d*:?\s*(.+?)(?=\n)/i);
-      if (headerMatch) {
-        const title = headerMatch[2].trim().replace(/\*+$/, '').trim();
-        if (title && !ideas.find(idea => idea.title === title)) {
-          ideas.push({
-            id: `${batchNum}-${ideas.length + 1}-${ts}`,
-            title,
-            content: section.trim(), // Capture full section content
-          });
-        }
-      }
-    }
-
-    // Fallback: try alternative patterns if no ideas found
-    if (ideas.length === 0) {
-      const altSections = text.split(/(?=###?\s*\d+\.)/i).filter(s => s.trim());
-      for (let i = 0; i < altSections.length; i++) {
-        const section = altSections[i];
-        const headerMatch = section.match(/###?\s*(\d+)\.\s*(.+?)(?=\n)/i);
-        if (headerMatch) {
-          const title = headerMatch[2].trim().replace(/\*+$/, '').trim();
-          if (title && !ideas.find(idea => idea.title === title)) {
-            ideas.push({
-              id: `${batchNum}-${ideas.length + 1}-${ts}`,
-              title,
-              content: section.trim(),
-            });
-          }
-        }
-      }
-    }
-
-    // Second fallback: look for "The Hook" pattern
-    if (ideas.length === 0) {
-      const hookPattern = /##\s*(.+?)\n([\s\S]*?)(?=##|$)/gi;
-      let match;
-      while ((match = hookPattern.exec(text)) !== null) {
-        const fullSection = match[0];
-        if (fullSection.includes('**The Hook**') || fullSection.includes('**Hook:**')) {
-          const title = match[1].replace(/^IDEA\s*\d+[\.:]\s*/i, '').trim();
-          if (title && !ideas.find(idea => idea.title === title)) {
-            ideas.push({
-              id: `${batchNum}-${ideas.length + 1}-${ts}`,
-              title,
-              content: fullSection.trim(),
-            });
-          }
-        }
-      }
-    }
-
-    console.log(`Parsed ${ideas.length} ideas from batch ${batchNum}:`, ideas.map(i => i.title));
-    return ideas;
-  };
-
-  const parseVerdicts = (text: string, ideas: IdeaResult[]): IdeaResult[] => {
-    // Position-based section isolation: find where each idea's memo starts
-    // in the raw text, sort by position, then slice between consecutive starts.
-    // This is far more robust than split+find, which fails silently when the
-    // model uses a non-standard header (e.g. `### MEMO`, `**MEMO...**`, no `##`).
-    const findIdeaStart = (idea: IdeaResult): number => {
-      const batchDotN = idea.id.replace('-', '.');
-      const escaped = batchDotN.replace('.', '\\.');
-      const candidates: RegExp[] = [
-        // Preferred: header line with MEMO + IDEA N.M
-        new RegExp(`^[ \\t]*#{1,4}[ \\t]*[^\\n]*MEMO[^\\n]*IDEA[ \\t]+${escaped}\\b`, 'mi'),
-        // Any header line with IDEA N.M
-        new RegExp(`^[ \\t]*#{1,4}[ \\t]*[^\\n]*IDEA[ \\t]+${escaped}\\b`, 'mi'),
-        // Bolded header variant: **MEMO — IDEA N.M...**
-        new RegExp(`^[ \\t]*\\*\\*[^\\n]*IDEA[ \\t]+${escaped}[^\\n]*\\*\\*`, 'mi'),
-        // Any occurrence of "IDEA N.M" as a fallback (line start preferred)
-        new RegExp(`\\bIDEA[ \\t]+${escaped}\\b`, 'i'),
-      ];
-      for (const pat of candidates) {
-        const m = text.match(pat);
-        if (m && m.index !== undefined) {
-          // Walk back to the start of that line
-          const before = text.slice(0, m.index);
-          const lastNl = before.lastIndexOf('\n');
-          return lastNl + 1;
-        }
-      }
-      // Final fallback: search by full title
-      const titleIdx = text.indexOf(idea.title);
-      if (titleIdx >= 0) {
-        const before = text.slice(0, titleIdx);
-        const lastNl = before.lastIndexOf('\n');
-        return lastNl + 1;
-      }
-      return -1;
-    };
-
-    const starts = ideas
-      .map((idea) => ({ idea, start: findIdeaStart(idea) }))
-      .filter((p) => p.start >= 0)
-      .sort((a, b) => a.start - b.start);
-
-    const sectionMap = new Map<string, string>();
-    for (let i = 0; i < starts.length; i++) {
-      const end = i + 1 < starts.length ? starts[i + 1].start : text.length;
-      sectionMap.set(starts[i].idea.id, text.slice(starts[i].start, end).trim());
-    }
-
-    // Extract a field value — stops at the next **Field:** line OR any ## header
-    const extractField = (section: string, fieldName: string): string => {
-      const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const pattern = new RegExp(
-        `\\*\\*${escaped}:?\\*\\*\\s*([^\\n]+(?:\\n(?!\\s*(?:\\*\\*|#))[^\\n]*)*)`,
-        'i'
-      );
-      const match = section.match(pattern);
-      return match?.[1]?.trim().replace(/\*+/g, '').trim() ?? '';
-    };
-
-    return ideas.map(idea => {
-      const section = sectionMap.get(idea.id) ?? '';
-
-      // Parse verdict from the **Verdict:** line (exact match preferred)
-      let verdict: Verdict | undefined;
-      const verdictLine = section.match(/\*\*Verdict:\*\*\s*([\w_]+)/i);
-      const vv = verdictLine?.[1]?.toUpperCase().replace(/\s+/g, '_');
-      if (vv === 'STRONG_INVEST') verdict = 'STRONG_INVEST';
-      else if (vv === 'INVEST') verdict = 'INVEST';
-      else if (vv === 'SOFT_PASS') verdict = 'SOFT_PASS';
-      else if (vv === 'STRONG_PASS') verdict = 'STRONG_PASS';
-
-      // Fallback verdict scan if line-level match failed
-      if (!verdict) {
-        if (/strong[\s_]invest/i.test(section)) verdict = 'STRONG_INVEST';
-        else if (/\binvest\b/i.test(section)) verdict = 'INVEST';
-        else if (/soft[\s_]pass/i.test(section)) verdict = 'SOFT_PASS';
-        else if (/strong[\s_]pass|(?<!soft[\s_])\bpass\b/i.test(section)) verdict = 'STRONG_PASS';
-      }
-
-      // Parse scores
-      const parseScore = (label: string): number => {
-        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const m = section.match(new RegExp(`\\*\\*${escaped}[^*]*\\*\\*:?\\s*(\\d+)`, 'i'))
-          || section.match(new RegExp(`${escaped}[^:\\n]*:?\\s*(\\d+)`, 'i'));
-        return m ? parseInt(m[1]) : 0;
-      };
-      const moatVal = parseScore('Moat Score');
-      const fitVal = parseScore('Founder Fit Score');
-      const timingVal = parseScore('Market Timing Score');
-      const distVal = parseScore('Distribution Edge Score');
-
-      const parseScoreRationale = (scoreLabel: string): string => {
-        const escaped = scoreLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const line = section.match(
-          new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+[^\\n]*`, 'i'),
-        )?.[0] ?? '';
-        const r = line
-          .replace(new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+(?:/10)?`, 'i'), '')
-          .replace(/^\s*[—–\-:]\s*/, '')
-          .trim();
-        return r;
-      };
-      const moatRationale = parseScoreRationale('Moat Score');
-      const founderFitRationale = parseScoreRationale('Founder Fit Score');
-      const marketTimingRationale = parseScoreRationale('Market Timing Score');
-      const distributionEdgeRationale = parseScoreRationale('Distribution Edge Score');
-
-      // Extract bullet list fields (Key Risks) — capture until next **Field:** or ##
-      const extractBulletList = (fieldName: string): string => {
-        const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const m = section.match(
-          new RegExp(
-            `\\*\\*${escaped}:?\\*\\*\\s*\\n?((?:\\s*[-*•][^\\n]*\\n?)+)`,
-            'i',
-          ),
-        );
-        if (m?.[1]) return m[1].trim();
-        // Fallback: treat as regular field if bullets missing
-        return extractField(section, fieldName);
-      };
-
-      // Parse VC critique summary fields
-      const oneLiner = extractField(section, 'One-Liner') || extractField(section, 'One Liner');
-      const bullCase = extractField(section, 'Bull Case');
-      const bearCase = extractField(section, 'Bear Case');
-      const comparableCompanies = extractField(section, 'Comparable Companies');
-      const marketSizing = extractField(section, 'Market Sizing');
-      const unitEconomics =
-        extractField(section, 'Unit Economics First-Cut') ||
-        extractField(section, 'Unit Economics');
-      const hairOnFireCheck = extractField(section, 'Hair-on-Fire Check');
-      const distributionPlan = extractField(section, 'Distribution Plan');
-      const keyRisks = extractBulletList('Key Risks');
-      const whatWouldChangeMind =
-        extractField(section, 'What Would Change My Mind') ||
-        extractField(section, "What Would Change My Mind");
-      const verdictRationale = extractField(section, 'Verdict Rationale');
-
-      return {
-        ...idea,
-        verdict,
-        critique: section,
-        oneLiner,
-        bullCase,
-        bearCase,
-        comparableCompanies,
-        marketSizing,
-        unitEconomics,
-        hairOnFireCheck,
-        distributionPlan,
-        keyRisks,
-        whatWouldChangeMind,
-        verdictRationale,
-        moatRationale,
-        founderFitRationale,
-        marketTimingRationale,
-        distributionEdgeRationale,
-        scores: {
-          moat: moatVal,
-          founderFit: fitVal,
-          marketTiming: timingVal,
-          distributionEdge: distVal,
-        },
-      };
-    });
-  };
 
   const runBatch = async (batchNumber: number, priorIdeas?: string[]): Promise<IdeaResult[]> => {
     setPhase('generating');
@@ -746,39 +727,43 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
   const handleTogglePin = (idea: IdeaResult, e: React.MouseEvent) => {
     e.stopPropagation();
     const toggle = (s: IdeaResult) => (s.id === idea.id ? { ...s, pinned: !s.pinned } : s);
-    setSurvivors((prev) => prev.map(toggle));
-    setAllIdeas((prev) => prev.map(toggle));
-    // Persist to session via onComplete with updated lists
-    const nextSurvivors = survivors.map(toggle);
-    const nextAll = allIdeas.map(toggle);
+    const nextSurvivors = survivorsRef.current.map(toggle);
+    const nextAll = allIdeasRef.current.map(toggle);
+    survivorsRef.current = nextSurvivors;
+    allIdeasRef.current = nextAll;
+    setSurvivors(nextSurvivors);
+    setAllIdeas(nextAll);
     onComplete?.(toPublicIdeas(nextSurvivors), toPublicIdeas(nextAll));
   };
 
-  const handlePromote = (idea: IdeaResult, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const promoted = { ...idea, promoted: true };
-    setAllIdeas((prev) => prev.map((i) => (i.id === idea.id ? promoted : i)));
-    setSurvivors((prev) => [...prev, promoted].sort((a, b) => {
-      const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
-      const rankB = b.verdict ? VERDICT_CONFIG[b.verdict].rank : 99;
-      return rankA - rankB;
-    }));
-    const nextAll = allIdeas.map((i) => (i.id === idea.id ? promoted : i));
-    const nextSurvivors = [...survivors, promoted].sort((a, b) => {
+  const sortByRank = (list: IdeaResult[]) =>
+    [...list].sort((a, b) => {
       const rankA = a.verdict ? VERDICT_CONFIG[a.verdict].rank : 99;
       const rankB = b.verdict ? VERDICT_CONFIG[b.verdict].rank : 99;
       return rankA - rankB;
     });
+
+  const handlePromote = (idea: IdeaResult, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const promoted = { ...idea, promoted: true };
+    const nextAll = allIdeasRef.current.map((i) => (i.id === idea.id ? promoted : i));
+    const nextSurvivors = sortByRank([...survivorsRef.current, promoted]);
+    survivorsRef.current = nextSurvivors;
+    allIdeasRef.current = nextAll;
+    setSurvivors(nextSurvivors);
+    setAllIdeas(nextAll);
     onComplete?.(toPublicIdeas(nextSurvivors), toPublicIdeas(nextAll));
   };
 
   const handleDemote = (idea: IdeaResult, e: React.MouseEvent) => {
     e.stopPropagation();
     const demoted = { ...idea, promoted: false };
-    setAllIdeas((prev) => prev.map((i) => (i.id === idea.id ? demoted : i)));
-    setSurvivors((prev) => prev.filter((s) => s.id !== idea.id));
-    const nextAll = allIdeas.map((i) => (i.id === idea.id ? demoted : i));
-    const nextSurvivors = survivors.filter((s) => s.id !== idea.id);
+    const nextAll = allIdeasRef.current.map((i) => (i.id === idea.id ? demoted : i));
+    const nextSurvivors = survivorsRef.current.filter((s) => s.id !== idea.id);
+    survivorsRef.current = nextSurvivors;
+    allIdeasRef.current = nextAll;
+    setSurvivors(nextSurvivors);
+    setAllIdeas(nextAll);
     onComplete?.(toPublicIdeas(nextSurvivors), toPublicIdeas(nextAll));
   };
 

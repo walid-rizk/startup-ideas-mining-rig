@@ -9,7 +9,7 @@ import { AppHeader } from '@/components/app-header';
 import IntakeSession from '@/components/mining/intake-session';
 import { useSession } from '@/lib/session-context';
 import { streamToText } from '@/lib/streaming';
-import { renderMarkdownBlock } from '@/lib/markdown-render';
+import { renderMarkdownBlock, MarkdownBlock } from '@/lib/markdown-render';
 import Link from 'next/link';
 import {
   Terminal,
@@ -286,7 +286,7 @@ export default function IntakePage() {
                     value={session.founderContext}
                     onChange={(e) => update({ founderContext: e.target.value })}
                     className="min-h-[500px] bg-zinc-950 border-zinc-700 text-zinc-300 font-mono text-sm leading-relaxed"
-                    placeholder="# Founder Thesis: ..."
+                    placeholder="# Founder Context: ..."
                   />
                   <p className="text-xs text-zinc-600 font-mono mt-2">
                     Edits auto-save and propagate to every downstream skill.
@@ -426,7 +426,7 @@ export default function IntakePage() {
               ) : thesisRunning ? (
                 <div className="bg-zinc-950 rounded-lg p-5 border border-zinc-800 min-h-[200px] max-h-[600px] overflow-y-auto">
                   {thesisOutput ? (
-                    renderMarkdownBlock(thesisOutput)
+                    <MarkdownBlock raw={thesisOutput} />
                   ) : (
                     <span className="text-xs text-zinc-600 font-mono">
                       Generating thesis candidates...
@@ -467,7 +467,7 @@ export default function IntakePage() {
       </main>
 
       <footer className="border-t border-zinc-800 px-6 py-3">
-        <div className="max-w-4xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
+        <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
           <span>Intake • Founder Context &amp; Thesis</span>
           <span>{session.modelChoice.provider} • {session.modelChoice.model}</span>
         </div>

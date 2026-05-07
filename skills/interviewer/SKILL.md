@@ -155,7 +155,7 @@ A section can combine labels (e.g. `Constrained + Excludes`). Use whichever labe
 When all three phases are complete, emit a single markdown block with these H2 sections **in this exact order and spelling** (downstream parsers depend on this):
 
 ```markdown
-# Founder Thesis: [Name or "Founder"]
+# Founder Context: [Name or "Founder"]
 
 ## Founder DNA
 - **Career Arc:** [2–4 bullets capturing the shape of their career — formative roles, domain tenure, level of operation. Not a resume dump; the story of how they got their edge.]

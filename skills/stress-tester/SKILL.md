@@ -56,6 +56,8 @@ Not all apply to every idea. Pick the 3-5 most lethal for this specific case.
 
 **Overall: [CRITICAL | HIGH | MODERATE | LOW]**
 
+> Emit this line in **exactly** the format above — the leading `**Overall:`, a single space, the level, and the closing `**`. The UI parses this line to render a severity badge; deviating from the format hides the badge.
+
 - **CRITICAL** — Multiple kill shots. At least one failure mode is near-certain and would be fatal. The founder should seriously reconsider or pivot significantly before investing time.
 - **HIGH** — 2-3 serious vulnerabilities that each have >30% chance of killing the company. Addressable, but the founder needs a clear mitigation plan before proceeding.
 - **MODERATE** — Real risks exist but none are individually fatal. Standard startup risk profile. Proceed with eyes open.
@@ -91,7 +93,7 @@ Not all apply to every idea. Pick the 3-5 most lethal for this specific case.
 
 ## Self-Check Before Emitting
 
-- [ ] Severity Rating is one of the four enum values with a one-line justification.
+- [ ] Severity Rating is one of the four enum values with a one-line justification, emitted as `**Overall: [LEVEL]**` in bold — the UI badge depends on this exact format.
 - [ ] 3-5 Kill Shots, each with a named attack vector, a concrete failure scenario, and real evidence.
 - [ ] No Kill Shot says "execution risk" or "competition" without naming a specific competitor or mechanism.
 - [ ] At least 2 Kill Shots reference something specific from the Founder Context (a gap, a Revealed Preference conflict, a network limitation).

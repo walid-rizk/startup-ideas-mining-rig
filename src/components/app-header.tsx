@@ -169,7 +169,7 @@ export function AppHeader({ currentPhase }: { currentPhase?: PhaseKey }) {
             <SessionToolbar compact />
           </div>
         </div>
-        <nav className="grid grid-cols-7 gap-3">
+        <nav className="grid grid-cols-4 sm:grid-cols-7 gap-2 sm:gap-3">
           {PHASES.map((p) => {
             const isActive = p.key === currentPhase;
             const isPhaseRunning = runningPhases.has(p.key);

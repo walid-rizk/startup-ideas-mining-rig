@@ -102,7 +102,7 @@ export default function StressTestSession({
     s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/`([^`]+)`/g, '$1');
 
   const parseSeverity = (): { level: string; color: string; bgColor: string; borderColor: string } | null => {
-    const match = output.match(/\*\*Overall:\s*(CRITICAL|HIGH|MODERATE|LOW)\*\*/i);
+    const match = output.match(/(?:^|\n)\s*(?:\*\*)?\s*Overall\s*:\s*(?:\*\*\s*)?(CRITICAL|HIGH|MODERATE|LOW)\b/i);
     if (!match) return null;
     const level = match[1].toUpperCase();
     const config: Record<string, { color: string; bgColor: string; borderColor: string }> = {

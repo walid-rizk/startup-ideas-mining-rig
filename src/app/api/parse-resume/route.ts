@@ -2,12 +2,21 @@ import { extractText } from "unpdf";
 
 export const maxDuration = 30;
 
+const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+
 export async function POST(req: Request) {
   const formData = await req.formData();
   const file = formData.get("file");
 
   if (!file || typeof file === "string") {
     return Response.json({ error: "No file provided" }, { status: 400 });
+  }
+
+  if (file.size > MAX_BYTES) {
+    return Response.json({ error: "File too large (max 10 MB)" }, { status: 413 });
+  }
+  if (file.type && file.type !== "application/pdf") {
+    return Response.json({ error: "Only PDF files are supported" }, { status: 415 });
   }
 
   const bytes = await file.arrayBuffer();
@@ -28,7 +37,6 @@ export async function POST(req: Request) {
       );
     }
 
-    console.log(`[parse-resume] extracted ${cleaned.length} chars from ${file.name}`);
     return Response.json({ text: cleaned });
   } catch {
     return Response.json(

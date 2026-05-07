@@ -353,7 +353,7 @@ function VerifyPageInner() {
       </main>
 
       <footer className="border-t border-zinc-800 px-6 py-3">
-        <div className="max-w-4xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
+        <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
           <span>Verify • Due Diligence</span>
           <span>{session.modelChoice.provider} • {session.modelChoice.model}</span>
         </div>

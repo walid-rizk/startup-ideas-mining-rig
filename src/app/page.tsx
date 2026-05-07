@@ -10,6 +10,13 @@ import { useSession } from '@/lib/session-context';
 import type { IdeaResult as PublicIdeaResult } from '@/lib/types';
 import { renderMarkdownBlock } from '@/lib/markdown-render';
 import {
+  parseMarketConfidence,
+  parseStressSeverity,
+  scoreFromSignals,
+  type MarketConfidence,
+  type StressSeverity,
+} from '@/lib/session';
+import {
   Pickaxe,
   Package,
   ArrowRight,
@@ -39,7 +46,7 @@ function parseFounderSummary(context: string): {
   lens: string | null;
   skills: string | null;
 } {
-  const nameMatch = context.match(/^#\s+Founder Thesis:\s*(.+)/m);
+  const nameMatch = context.match(/^#\s+Founder (?:Context|Thesis):\s*(.+)/m);
   const name = nameMatch ? nameMatch[1].trim().replace(/[*`]/g, '') : null;
 
   const extractSection = (heading: string): string | null => {
@@ -62,48 +69,6 @@ function parseFounderSummary(context: string): {
   return { name, winCondition, target, lens, skills };
 }
 
-function parseStressSeverity(report: string | undefined): 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null {
-  if (!report) return null;
-  const match = report.match(/\*\*Overall:\s*(CRITICAL|HIGH|MODERATE|LOW)\*\*/i);
-  return match ? (match[1].toUpperCase() as 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW') : null;
-}
-
-function parseMarketConfidence(report: string | undefined): 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT' | null {
-  if (!report) return null;
-  const match = report.match(/Market Confidence[:\s*]*(?:\*\*\s*)?(STRONG|MODERATE|WEAK|INSUFFICIENT)/i);
-  return match ? (match[1].toUpperCase() as 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT') : null;
-}
-
-
-function computeIdeaScore(
-  idea: PublicIdeaResult,
-  marketConfidence: 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT' | null,
-  stressSeverity: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null,
-): { score: number; preliminary: boolean } | null {
-  const scores = [idea.moatScore, idea.founderFitScore, idea.marketTimingScore, idea.distributionEdgeScore]
-    .filter((s): s is number => s != null && s > 0);
-  if (scores.length === 0) return null;
-
-  let score = scores.reduce((a, b) => a + b, 0) / scores.length;
-  const hasMarket = marketConfidence != null;
-  const hasStress = stressSeverity != null;
-
-  if (hasMarket) {
-    const adj: Record<string, number> = { STRONG: 1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5 };
-    score += adj[marketConfidence];
-  }
-  if (hasStress) {
-    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: 0, LOW: 0.5 };
-    score += adj[stressSeverity];
-  }
-
-  const preliminary = !hasMarket && !hasStress;
-  if (preliminary) {
-    score = score * 0.85;
-  }
-
-  return { score: Math.round(Math.max(0, Math.min(10, score)) * 10) / 10, preliminary };
-}
 
 function scoreColor(score: number): string {
   if (score >= 8) return 'text-emerald-400';
@@ -189,14 +154,18 @@ export default function Home() {
 
   const hasIntake = session.founderContext.trim().length > 0;
   const hasThesis = !!session.thesis && session.thesis.trim().length > 0;
-  const scoredSurvivors = session.survivors.map((s) => {
-    const conf = parseMarketConfidence(session.verifications[s.id]);
-    const sev = parseStressSeverity(session.stressTests[s.id]);
-    return { idea: s, computed: computeIdeaScore(s, conf, sev) };
-  });
-  const survivors = scoredSurvivors
-    .sort((a, b) => (b.computed?.score ?? -1) - (a.computed?.score ?? -1))
-    .map((s) => s.idea);
+  const signalsById = new Map<
+    string,
+    { confidence: MarketConfidence | null; severity: StressSeverity | null; computed: ReturnType<typeof scoreFromSignals> }
+  >();
+  for (const s of session.survivors) {
+    const confidence = parseMarketConfidence(session.verifications[s.id]);
+    const severity = parseStressSeverity(session.stressTests[s.id]);
+    signalsById.set(s.id, { confidence, severity, computed: scoreFromSignals(s, confidence, severity) });
+  }
+  const survivors = [...session.survivors].sort(
+    (a, b) => (signalsById.get(b.id)?.computed?.score ?? -1) - (signalsById.get(a.id)?.computed?.score ?? -1),
+  );
 
   const verifiedCount = survivors.filter((s) => !!session.verifications[s.id]).length;
   const stressTestedCount = survivors.filter((s) => !!session.stressTests[s.id]).length;
@@ -339,10 +308,11 @@ export default function Home() {
                     {survivors.map((s) => {
                       const verificationReport = session.verifications[s.id];
                       const hasResearch = !!verificationReport;
-                      const confidence = parseMarketConfidence(verificationReport);
                       const stressReport = session.stressTests[s.id];
-                      const severity = parseStressSeverity(stressReport);
-                      const ideaScoreResult = computeIdeaScore(s, confidence, severity);
+                      const cached = signalsById.get(s.id);
+                      const confidence = cached?.confidence ?? null;
+                      const severity = cached?.severity ?? null;
+                      const ideaScoreResult = cached?.computed ?? null;
                       const shaped = !!session.prds[s.id];
                       const blueprinted = !!session.blueprints[s.id];
                       const isExpanded = expandedSurvivor === s.id;
@@ -584,7 +554,7 @@ export default function Home() {
 
       <footer className="border-t border-zinc-800 px-6 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
-          <span>Dashboard</span>
+          <span>Dashboard • Pipeline Overview</span>
           <span>{session.modelChoice.provider} • {session.modelChoice.model}</span>
         </div>
       </footer>

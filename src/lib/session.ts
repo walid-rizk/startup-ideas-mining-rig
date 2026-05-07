@@ -295,40 +295,60 @@ export type PhaseData = {
   blueprints: Record<string, string>;
 };
 
-export function computeIdeaScore(
+export type MarketConfidence = 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT';
+export type StressSeverity = 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW';
+
+export function parseMarketConfidence(report: string | undefined): MarketConfidence | null {
+  if (!report) return null;
+  const m = report.match(/Market Confidence[:\s*]*(?:\*\*\s*)?(STRONG|MODERATE|WEAK|INSUFFICIENT)/i);
+  return m ? (m[1].toUpperCase() as MarketConfidence) : null;
+}
+
+export function parseStressSeverity(report: string | undefined): StressSeverity | null {
+  if (!report) return null;
+  // Accept bolded `**Overall: LEVEL**` (canonical) and unbolded `Overall: LEVEL` (defensive
+  // fallback for models that drop the bold formatting).
+  const m = report.match(/(?:^|\n)\s*(?:\*\*)?\s*Overall\s*:\s*(?:\*\*\s*)?(CRITICAL|HIGH|MODERATE|LOW)\b/i);
+  return m ? (m[1].toUpperCase() as StressSeverity) : null;
+}
+
+const MARKET_ADJ: Record<MarketConfidence, number> = { STRONG: 1.5, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5 };
+const STRESS_ADJ: Record<StressSeverity, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: 0, LOW: 0.5 };
+
+// Weighted-min blend: an idea with a single catastrophic dimension shouldn't
+// hide behind three strong ones. 9/9/9/2 → 5.7, not 7.25.
+function dimensionBase(scores: number[]): number {
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const min = Math.min(...scores);
+  return 0.7 * mean + 0.3 * min;
+}
+
+export function scoreFromSignals(
   idea: IdeaResult,
-  phases: PhaseData,
+  conf: MarketConfidence | null,
+  sev: StressSeverity | null,
 ): { score: number; preliminary: boolean } | null {
   const s = [idea.moatScore, idea.founderFitScore, idea.marketTimingScore, idea.distributionEdgeScore]
     .filter((v): v is number => v != null && v > 0);
   if (s.length === 0) return null;
-  let score = s.reduce((x, y) => x + y, 0) / s.length;
+  let score = dimensionBase(s);
 
-  const confMatch = phases.verifications[idea.id]?.match(
-    /Market Confidence[:\s*]*(?:\*\*\s*)?(STRONG|MODERATE|WEAK|INSUFFICIENT)/i,
-  );
-  const conf = confMatch ? confMatch[1].toUpperCase() : null;
-  const sevMatch = phases.stressTests[idea.id]?.match(
-    /\*\*Overall:\s*(CRITICAL|HIGH|MODERATE|LOW)\*\*/i,
-  );
-  const sev = sevMatch ? sevMatch[1].toUpperCase() : null;
+  if (conf) score += MARKET_ADJ[conf];
+  if (sev) score += STRESS_ADJ[sev];
 
-  const hasMarket = conf != null;
-  const hasStress = sev != null;
-
-  if (hasMarket) {
-    const adj: Record<string, number> = { STRONG: 1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5 };
-    score += adj[conf!] ?? 0;
-  }
-  if (hasStress) {
-    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: 0, LOW: 0.5 };
-    score += adj[sev!] ?? 0;
-  }
-
-  const preliminary = !hasMarket && !hasStress;
-  if (preliminary) score = score * 0.85;
-
+  const preliminary = conf == null && sev == null;
   return { score: Math.round(Math.max(0, Math.min(10, score)) * 10) / 10, preliminary };
+}
+
+export function computeIdeaScore(
+  idea: IdeaResult,
+  phases: PhaseData,
+): { score: number; preliminary: boolean } | null {
+  return scoreFromSignals(
+    idea,
+    parseMarketConfidence(phases.verifications[idea.id]),
+    parseStressSeverity(phases.stressTests[idea.id]),
+  );
 }
 
 export function sortByProgress(ideas: IdeaResult[], phases: PhaseData): IdeaResult[] {

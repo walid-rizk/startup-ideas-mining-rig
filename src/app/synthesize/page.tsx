@@ -7,45 +7,13 @@ import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
 import { sortByProgress } from '@/lib/session';
 import { streamToText } from '@/lib/streaming';
-import { renderMarkdownBlock } from '@/lib/markdown-render';
+import { MarkdownBlock } from '@/lib/markdown-render';
 import { Package, Play, Square, Download, FileDown, Trophy, FileText, ChevronRight, Clock, ArrowLeft, Trash2, CheckCircle, Lock, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import type { IdeaResult, SynthesisEntry } from '@/lib/types';
 import { reconstructVcMemo } from '@/lib/prompt-builders';
 import { marked } from 'marked';
 import { usePhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, clearPhaseRun, getPhaseRun } from '@/lib/phase-status';
-
-function parseMarketConfidence(report: string | undefined): 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT' | null {
-  if (!report) return null;
-  const match = report.match(/Market Confidence[:\s*]*(?:\*\*\s*)?(STRONG|MODERATE|WEAK|INSUFFICIENT)/i);
-  return match ? (match[1].toUpperCase() as 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT') : null;
-}
-
-function parseStressSeverity(report: string | undefined): 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null {
-  if (!report) return null;
-  const match = report.match(/\*\*Overall:\s*(CRITICAL|HIGH|MODERATE|LOW)\*\*/i);
-  return match ? (match[1].toUpperCase() as 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW') : null;
-}
-
-function computeIdeaScore(
-  idea: IdeaResult,
-  marketConfidence: 'STRONG' | 'MODERATE' | 'WEAK' | 'INSUFFICIENT' | null,
-  stressSeverity: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null,
-): number {
-  const scores = [idea.moatScore, idea.founderFitScore, idea.marketTimingScore, idea.distributionEdgeScore]
-    .filter((s): s is number => s != null && s > 0);
-  if (scores.length === 0) return 0;
-  let score = scores.reduce((a, b) => a + b, 0) / scores.length;
-  if (marketConfidence) {
-    const adj: Record<string, number> = { STRONG: 1, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5 };
-    score += adj[marketConfidence];
-  }
-  if (stressSeverity) {
-    const adj: Record<string, number> = { CRITICAL: -3, HIGH: -1.5, MODERATE: 0, LOW: 0.5 };
-    score += adj[stressSeverity];
-  }
-  return Math.round(Math.max(0, Math.min(10, score)) * 10) / 10;
-}
 
 function survivorsToMarkdown(survivors: IdeaResult[]): string {
   return survivors
@@ -421,7 +389,7 @@ ${bodyHtml}
               </div>
               <div className="bg-zinc-950 rounded-lg p-5 border border-zinc-800 min-h-[400px] max-h-[700px] overflow-y-auto">
                 {displayOutput ? (
-                  renderMarkdownBlock(displayOutput)
+                  <MarkdownBlock raw={displayOutput} />
                 ) : (
                   <span className="text-xs text-zinc-600 font-mono">Synthesizing...</span>
                 )}
@@ -510,7 +478,7 @@ ${bodyHtml}
 
       <footer className="border-t border-zinc-800 px-6 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
-          <span>Synthesizer • Final packaging step</span>
+          <span>Synthesize • Final Packaging</span>
           <span>{session.modelChoice.provider} • {session.modelChoice.model}</span>
         </div>
       </footer>

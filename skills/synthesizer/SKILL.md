@@ -45,7 +45,7 @@ Do not re-analyze. For each section in the output, pull from specific fields in 
 
 | Brief Section | Primary Source | What to Pull |
 | --- | --- | --- |
-| Cover | PRD Product Name + VC One-Liner + Founder Context `# Founder Thesis: [Name]` | The Name from the Founder Context heading goes in "Prepared by." |
+| Cover | PRD Product Name + VC One-Liner + Founder Context `# Founder Context: [Name]` (older sessions may use `# Founder Thesis: [Name]`) | The Name from the Founder Context heading goes in "Prepared by." |
 | The Founder | Founder DNA (all sub-sections) + VC Founder Fit Score justification | Career Arc, strongest 2–3 Unfair Advantages, one Revealed Preference that shows self-awareness. |
 | The Thesis | Founder Context `## The Lens` (`Concrete:` prefix) + PRD Thesis Alignment line | The founder's chosen angle, in their framing, tied to the product. |
 | The Opportunity | VC Market Sizing + data-miner Sizing Check + Customer Voice | Use data-miner's refined number if it differs from VC's original. Include at least one real customer quote if data-miner captured one. |

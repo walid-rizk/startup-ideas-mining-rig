@@ -110,8 +110,8 @@ export default function MinePage() {
       </main>
 
       <footer className="border-t border-zinc-800 px-6 py-3">
-        <div className="max-w-6xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
-          <span>Mine (Spark &amp; Roast)</span>
+        <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-zinc-600 font-mono">
+          <span>Mine • Spark &amp; Roast</span>
           <span>{session.modelChoice.provider} • {session.modelChoice.model}</span>
         </div>
       </footer>
