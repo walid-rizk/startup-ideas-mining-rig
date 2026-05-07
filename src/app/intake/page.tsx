@@ -74,8 +74,10 @@ function parseThesisCandidate(output: string, thesisNumber: number): ThesisField
 
 function getThesisTag(output: string, thesisNumber: number): string {
   const num = String(thesisNumber);
-  const match = output.match(new RegExp(`##\\s*Thesis\\s+${num}:[^—\\n]*—\\s*([^\\n]+)`, 'i'));
-  return match?.[1]?.trim() ?? (thesisNumber === 1 ? 'The Grounded Pick' : 'The Wild Card');
+  const line = output.match(new RegExp(`##\\s*Thesis\\s+${num}:[^\\n]+`, 'i'))?.[0];
+  if (!line) return thesisNumber === 1 ? 'The Grounded Pick' : 'The Wild Card';
+  const lastDash = line.lastIndexOf('—');
+  return lastDash >= 0 ? line.slice(lastDash + 1).trim() : (thesisNumber === 1 ? 'The Grounded Pick' : 'The Wild Card');
 }
 
 function downloadMarkdown(text: string, filename: string) {
