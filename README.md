@@ -53,7 +53,7 @@ The quality of every phase — idea generation, VC critique, market research, st
 | **Architect** | The CTO creates a technical blueprint — stack, data model, API design, implementation phases |
 | **Synthesize** | Rolls up all artifacts into an investor brief or build packet |
 
-All session data is stored in your browser's localStorage. Use the toolbar to export/import sessions as JSON.
+All session data is stored in your browser's IndexedDB (automatically migrated from localStorage). Use the toolbar to export/import sessions as JSON.
 
 ## Scoring
 
@@ -76,4 +76,4 @@ Ideas are sorted by phase progress first (more phases completed = higher rank), 
 - **Framework:** Next.js (App Router), React, TypeScript
 - **LLM:** Vercel AI SDK with Anthropic, Google, and OpenAI providers
 - **UI:** Tailwind CSS, shadcn/ui, Framer Motion
-- **Persistence:** Browser localStorage (no backend database)
+- **Persistence:** Browser IndexedDB (no backend database)

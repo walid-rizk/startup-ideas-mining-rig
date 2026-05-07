@@ -39,9 +39,11 @@ function ShapePageInner() {
     if (ideaParam) {
       const idea = session.survivors.find(s => s.id === ideaParam);
       if (idea) setSelectedIdea(idea);
+    } else {
+      setSelectedIdea(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+  }, [ready, searchParams]);
 
   if (!ready) return null;
 

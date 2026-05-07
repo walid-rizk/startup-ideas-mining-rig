@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import {
   Search,
   Loader2,
@@ -42,7 +41,6 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
   const isVerifying = !!(isActiveRun && phaseRun!.isRunning);
   const researchOutput = isActiveRun ? phaseRun!.output : (initialReport ?? '');
   const error = isActiveRun ? (phaseRun!.error ?? null) : null;
-  const [progress, setProgress] = useState(() => isVerifying ? 30 : (initialReport ? 100 : 0));
   const outputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,19 +48,6 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [researchOutput]);
-
-  useEffect(() => {
-    if (isVerifying) {
-      if (progress < 90) {
-        const timer = setInterval(() => {
-          setProgress(p => Math.min(p + Math.random() * 5, 90));
-        }, 500);
-        return () => clearInterval(timer);
-      }
-    } else if (isActiveRun && !error) {
-      setProgress(100);
-    }
-  }, [isVerifying, progress, isActiveRun, error]);
 
   useEffect(() => {
     return () => {
@@ -73,7 +58,6 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
 
   const startVerification = async () => {
     if (phaseRun?.isRunning) return;
-    setProgress(0);
     const ac = new AbortController();
     const runId = startPhaseRun('verify', ideaId, ac);
 
@@ -319,14 +303,10 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
       {/* Progress */}
       {isVerifying && (
         <div className="space-y-1.5">
-          <div className="flex justify-between text-xs font-mono text-zinc-400">
-            <span className="flex items-center gap-2">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Data Miner analyzing market...
-            </span>
-            <span>{Math.round(progress)}%</span>
+          <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Data Miner analyzing market...
           </div>
-          <Progress value={progress} className="h-1.5" />
         </div>
       )}
 

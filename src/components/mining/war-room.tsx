@@ -847,8 +847,8 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
           </div>
         </div>
 
-        {/* Mining settings — subtle inline controls under Start Mining */}
-        {!isRunning && !globalMining.isRunning && (
+        {/* Mining settings — only show when survivors already exist (subsequent runs) */}
+        {!isRunning && !globalMining.isRunning && survivors.length > 0 && (
           <div className="flex flex-col items-end gap-1 mt-1.5 px-4 text-[11px] font-mono text-zinc-600">
             <label className="flex items-center gap-1.5">
               <span>batches</span>
@@ -863,7 +863,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
               </select>
             </label>
             <label className="flex items-center gap-1.5">
-              <span>target survivors</span>
+              <span>max new survivors</span>
               <select
                 value={targetSurvivors}
                 onChange={(e) => setTargetSurvivors(Number(e.target.value))}
@@ -923,7 +923,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
           <div className="mt-4 space-y-2">
             <div className="flex justify-between text-xs font-mono text-zinc-400">
               <span>Batch {currentBatch} of {maxBatches}</span>
-              <span>{survivors.length - priorSurvivorCountRef.current} / {targetSurvivors} new survivors</span>
+              <span>{survivors.length - priorSurvivorCountRef.current} / {targetSurvivors} max new survivors</span>
             </div>
             <Progress value={progress} className="h-2" />
           </div>

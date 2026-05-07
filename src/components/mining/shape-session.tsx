@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import {
   FileText,
   Loader2,
@@ -50,7 +49,6 @@ export default function ShapeSession({ userContext, ideaId, idea, vcMemo, market
   const isShaping = !!(isActiveRun && phaseRun!.isRunning);
   const prdOutput = isActiveRun ? phaseRun!.output : (initialPrd ?? '');
   const error = isActiveRun ? (phaseRun!.error ?? null) : null;
-  const [progress, setProgress] = useState(() => isShaping ? 30 : (initialPrd ? 100 : 0));
   const outputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,19 +56,6 @@ export default function ShapeSession({ userContext, ideaId, idea, vcMemo, market
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [prdOutput]);
-
-  useEffect(() => {
-    if (isShaping) {
-      if (progress < 90) {
-        const timer = setInterval(() => {
-          setProgress(p => Math.min(p + Math.random() * 4, 90));
-        }, 500);
-        return () => clearInterval(timer);
-      }
-    } else if (isActiveRun && !error) {
-      setProgress(100);
-    }
-  }, [isShaping, progress, isActiveRun, error]);
 
   useEffect(() => {
     return () => {
@@ -195,7 +180,6 @@ export default function ShapeSession({ userContext, ideaId, idea, vcMemo, market
 
   const startShaping = async () => {
     if (phaseRun?.isRunning) return;
-    setProgress(0);
     const ac = new AbortController();
     const runId = startPhaseRun('shape', ideaId, ac);
 
@@ -416,14 +400,10 @@ ${bodyHtml}
         {/* Progress */}
         {isShaping && (
           <div className="mt-4 space-y-2">
-            <div className="flex justify-between text-xs font-mono text-zinc-400">
-              <span className="flex items-center gap-2">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Product Manager crafting PRD...
-              </span>
-              <span>{Math.round(progress)}%</span>
+            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Product Manager crafting PRD...
             </div>
-            <Progress value={progress} className="h-2" />
           </div>
         )}
       </Card>

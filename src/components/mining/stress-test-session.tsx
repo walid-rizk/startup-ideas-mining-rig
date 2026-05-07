@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import {
   Flame,
   Loader2,
@@ -47,7 +46,6 @@ export default function StressTestSession({
   const isRunning = !!(isActiveRun && phaseRun!.isRunning);
   const output = isActiveRun ? phaseRun!.output : (initialReport ?? '');
   const error = isActiveRun ? (phaseRun!.error ?? null) : null;
-  const [progress, setProgress] = useState(() => isRunning ? 30 : (initialReport ? 100 : 0));
   const outputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -55,19 +53,6 @@ export default function StressTestSession({
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [output]);
-
-  useEffect(() => {
-    if (isRunning) {
-      if (progress < 90) {
-        const timer = setInterval(() => {
-          setProgress(p => Math.min(p + Math.random() * 5, 90));
-        }, 500);
-        return () => clearInterval(timer);
-      }
-    } else if (isActiveRun && !error) {
-      setProgress(100);
-    }
-  }, [isRunning, progress, isActiveRun, error]);
 
   useEffect(() => {
     return () => {
@@ -78,7 +63,6 @@ export default function StressTestSession({
 
   const startStressTest = async () => {
     if (phaseRun?.isRunning) return;
-    setProgress(0);
     const ac = new AbortController();
     const runId = startPhaseRun('stress-test', ideaId, ac);
 
@@ -222,14 +206,10 @@ export default function StressTestSession({
       {/* Progress */}
       {isRunning && (
         <div className="space-y-1.5">
-          <div className="flex justify-between text-xs font-mono text-zinc-400">
-            <span className="flex items-center gap-2">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Devil&apos;s Advocate attacking...
-            </span>
-            <span>{Math.round(progress)}%</span>
+          <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Devil&apos;s Advocate attacking...
           </div>
-          <Progress value={progress} className="h-1.5" />
         </div>
       )}
 

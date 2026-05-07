@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import {
   Code2,
   Loader2,
@@ -53,7 +52,6 @@ export default function BlueprintSession({ userContext, ideaId, idea, vcMemo, ma
   const isBuilding = !!(isActiveRun && phaseRun!.isRunning);
   const blueprintOutput = isActiveRun ? phaseRun!.output : (initialBlueprint ?? '');
   const error = isActiveRun ? (phaseRun!.error ?? null) : null;
-  const [progress, setProgress] = useState(() => isBuilding ? 30 : (initialBlueprint ? 100 : 0));
   const outputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,19 +59,6 @@ export default function BlueprintSession({ userContext, ideaId, idea, vcMemo, ma
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [blueprintOutput]);
-
-  useEffect(() => {
-    if (isBuilding) {
-      if (progress < 90) {
-        const timer = setInterval(() => {
-          setProgress(p => Math.min(p + Math.random() * 4, 90));
-        }, 500);
-        return () => clearInterval(timer);
-      }
-    } else if (isActiveRun && !error) {
-      setProgress(100);
-    }
-  }, [isBuilding, progress, isActiveRun, error]);
 
   useEffect(() => {
     return () => {
@@ -180,7 +165,6 @@ export default function BlueprintSession({ userContext, ideaId, idea, vcMemo, ma
 
   const startBlueprint = async () => {
     if (phaseRun?.isRunning) return;
-    setProgress(0);
     const ac = new AbortController();
     const runId = startPhaseRun('blueprint', ideaId, ac);
 
@@ -402,14 +386,10 @@ ${bodyHtml}
         {/* Progress */}
         {isBuilding && (
           <div className="mt-4 space-y-2">
-            <div className="flex justify-between text-xs font-mono text-zinc-400">
-              <span className="flex items-center gap-2">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                CTO architecting the build plan...
-              </span>
-              <span>{Math.round(progress)}%</span>
+            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              CTO architecting the build plan...
             </div>
-            <Progress value={progress} className="h-2" />
           </div>
         )}
       </Card>

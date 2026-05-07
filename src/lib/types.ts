@@ -49,7 +49,7 @@ export const MODEL_OPTIONS: Array<ModelChoice & { label: string }> = [
   { provider: "gemini", model: "gemini-3.0-pro", label: "Gemini 3.0 Pro" },
   { provider: "gemini", model: "gemini-3.1-flash", label: "Gemini 3.1 Flash" },
   { provider: "anthropic", model: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-  { provider: "anthropic", model: "claude-sonnet-4-6-20260401", label: "Claude Sonnet 4.6" },
+  { provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
   { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { provider: "anthropic", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
   { provider: "openai", model: "gpt-5.4-mini", label: "GPT 5.4 Mini" },

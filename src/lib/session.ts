@@ -4,6 +4,51 @@ import type { Session, IdeaResult, Verdict, ModelChoice, ChatMessage, SynthesisE
 import { DEFAULT_MODEL } from "./types";
 
 const STORAGE_KEY = "idea-mining-rig.session.v1";
+const IDB_NAME = "idea-mining-rig";
+const IDB_STORE = "session";
+const IDB_KEY = "current";
+
+// ─── IndexedDB helpers ─────────────────────────────────────────────
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbGet<T>(key: string): Promise<T | undefined> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => resolve(req.result as T | undefined);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbSet(key: string, value: unknown): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function idbDelete(key: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
 
 // ─── Zod schemas (runtime validation for import) ────────────────────
 const chatMessageSchema: z.ZodType<ChatMessage> = z.object({
@@ -128,12 +173,9 @@ function deduplicateIdeas(
   return { ideas: deduped, maps: remapped };
 }
 
-export function loadSession(): Session | null {
-  if (typeof window === "undefined") return null;
+function hydrateSession(raw: unknown): Session | null {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = sessionSchema.parse(JSON.parse(raw));
+    const parsed = sessionSchema.parse(raw);
 
     const { ideas: survivors, maps: [v1, st1, p1, b1] } = deduplicateIdeas(
       parsed.survivors,
@@ -164,19 +206,47 @@ export function loadSession(): Session | null {
 
     return parsed;
   } catch (err) {
+    console.warn("[session] failed to parse:", err);
+    return null;
+  }
+}
+
+export async function loadSession(): Promise<Session | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    // Try IndexedDB first
+    const idbData = await idbGet<unknown>(IDB_KEY);
+    if (idbData) return hydrateSession(idbData);
+
+    // Migrate from localStorage if present
+    const lsRaw = window.localStorage.getItem(STORAGE_KEY);
+    if (lsRaw) {
+      const parsed = JSON.parse(lsRaw);
+      const session = hydrateSession(parsed);
+      if (session) {
+        await idbSet(IDB_KEY, { ...session, updatedAt: new Date().toISOString() });
+        window.localStorage.removeItem(STORAGE_KEY);
+        console.info("[session] migrated from localStorage to IndexedDB");
+      }
+      return session;
+    }
+
+    return null;
+  } catch (err) {
     console.warn("[session] failed to load, starting fresh:", err);
     return null;
   }
 }
 
-export function saveSession(session: Session): void {
+export async function saveSession(session: Session): Promise<void> {
   if (typeof window === "undefined") return;
   const withTs = { ...session, updatedAt: new Date().toISOString() };
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(withTs));
+  await idbSet(IDB_KEY, withTs);
 }
 
-export function clearSession(): void {
+export async function clearSession(): Promise<void> {
   if (typeof window === "undefined") return;
+  await idbDelete(IDB_KEY);
   window.localStorage.removeItem(STORAGE_KEY);
 }
 

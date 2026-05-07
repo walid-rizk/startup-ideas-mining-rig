@@ -37,11 +37,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Hydrate from localStorage on mount
+  // Hydrate from IndexedDB on mount (migrates localStorage automatically)
   useEffect(() => {
-    const loaded = loadSession();
-    if (loaded) setSession(loaded);
-    setReady(true);
+    loadSession().then((loaded) => {
+      if (loaded) setSession(loaded);
+      setReady(true);
+    });
   }, []);
 
   // Debounced persist on changes
@@ -67,8 +68,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   const reset = useCallback(() => {
-    clearPersistedSession();
-    setSession(createEmptySession());
+    clearPersistedSession().then(() => setSession(createEmptySession()));
   }, []);
 
   const doExport = useCallback(() => {
@@ -78,7 +78,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const doImport = useCallback(async (file: File) => {
     const imported = await importSessionFromFile(file);
     setSession(imported);
-    saveSession(imported);
+    await saveSession(imported);
   }, []);
 
   const value = useMemo<SessionContextValue>(

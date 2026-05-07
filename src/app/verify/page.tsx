@@ -60,9 +60,11 @@ function VerifyPageInner() {
         const tabParam = searchParams.get('tab');
         if (tabParam === 'stress-test') setActiveTab('stress-test');
       }
+    } else {
+      setSelectedIdea(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+  }, [ready, searchParams]);
 
   if (!ready) return null;
 
