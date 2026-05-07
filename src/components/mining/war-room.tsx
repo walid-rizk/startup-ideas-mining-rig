@@ -189,6 +189,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
   const outputRef = useRef<HTMLDivElement>(null);
   const critiqueRef = useRef<HTMLDivElement>(null);
   const ownRunRef = useRef(false);
+  const priorSurvivorCountRef = useRef(0);
   const globalMining = useMiningStatus();
 
   // Refs that shadow React state so async mining functions always see the
@@ -580,6 +581,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
     try {
       const discardedTitles = (externalDiscarded ?? []).map(i => i.title).filter(Boolean);
       const priorSurvivorCount = survivorsRef.current.length;
+      priorSurvivorCountRef.current = priorSurvivorCount;
       let batch = 1;
 
       while (batch <= maxBatches && (survivorsRef.current.length - priorSurvivorCount) < targetSurvivors) {
@@ -921,7 +923,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
           <div className="mt-4 space-y-2">
             <div className="flex justify-between text-xs font-mono text-zinc-400">
               <span>Batch {currentBatch} of {maxBatches}</span>
-              <span>{survivors.length} / {targetSurvivors} survivors</span>
+              <span>{survivors.length - priorSurvivorCountRef.current} / {targetSurvivors} new survivors</span>
             </div>
             <Progress value={progress} className="h-2" />
           </div>
