@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
@@ -815,9 +814,6 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
     onRestore?.(pub);
   };
 
-  const progress = ((currentBatch - 1) / maxBatches) * 100 +
-    (phase === 'generating' ? 15 : phase === 'critiquing' ? 30 : 0);
-
   return (
     <Card className="w-full max-w-6xl mx-auto bg-zinc-950 border-zinc-800 overflow-hidden">
       {/* Header */}
@@ -937,14 +933,13 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
           </div>
         )}
 
-        {/* Progress */}
+        {/* Status */}
         {isRunning && (
-          <div className="mt-4 space-y-2">
-            <div className="flex justify-between text-xs font-mono text-zinc-400">
-              <span>Batch {currentBatch} of {maxBatches}</span>
-              <span>{survivors.length - priorSurvivorCountRef.current} / {targetSurvivors} max new survivors</span>
-            </div>
-            <Progress value={progress} className="h-2" />
+          <div className="mt-4 flex items-center gap-2 text-xs font-mono text-zinc-400">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            <span>Batch {currentBatch} of {maxBatches}</span>
+            <span className="text-zinc-700">•</span>
+            <span>{survivors.length - priorSurvivorCountRef.current} / {targetSurvivors} max new survivors</span>
           </div>
         )}
       </div>
