@@ -157,6 +157,14 @@ function toPublicIdeas(ideas: IdeaResult[]): PublicIdeaResult[] {
   }));
 }
 
+// Extract the batch number from an idea ID. Mined ideas use `${batch}-${n}-${ts}`
+// so the prefix is the batch (1, 2, 3, ...). Custom ideas use `custom-${ts}-${n}` —
+// those return NaN and are filtered out by callers.
+function batchFromId(id: string): number {
+  const n = Number(id.split('-')[0]);
+  return Number.isFinite(n) ? n : NaN;
+}
+
 function stripMarkdown(text: string): string {
   return text
     .replace(/\*\*([^*]+)\*\*/g, '$1')  // Bold
@@ -563,11 +571,21 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
       const discardedTitles = (externalDiscarded ?? []).map(i => i.title).filter(Boolean);
       const priorSurvivorCount = survivorsRef.current.length;
       priorSurvivorCountRef.current = priorSurvivorCount;
-      let batch = 1;
 
-      while (batch <= maxBatches && (survivorsRef.current.length - priorSurvivorCount) < targetSurvivors) {
-        setCurrentBatch(batch);
-        setMiningStatus({ currentBatch: batch });
+      // Continue batch numbering across mining runs so IDEA labels (1.1, 1.2, ...)
+      // don't collide with prior runs. Look at every idea ever generated (kept or
+      // discarded) and start one above the highest seen.
+      const seenBatches = [
+        ...allIdeasRef.current.map(i => batchFromId(i.id)),
+        ...(externalDiscarded ?? []).map(i => batchFromId(i.id)),
+      ].filter((n) => Number.isFinite(n) && n > 0);
+      const startBatch = (seenBatches.length > 0 ? Math.max(...seenBatches) : 0) + 1;
+      let batch = startBatch;
+      let batchInRun = 1;
+
+      while (batchInRun <= maxBatches && (survivorsRef.current.length - priorSurvivorCount) < targetSurvivors) {
+        setCurrentBatch(batchInRun);
+        setMiningStatus({ currentBatch: batchInRun });
 
         const priorTitles = [
           ...discardedTitles,
@@ -599,6 +617,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
         }
 
         batch++;
+        batchInRun++;
       }
 
       setPhase('complete');
@@ -640,6 +659,20 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
     setMiningAbort(abortControllerRef.current);
     setMiningStatus({ isRunning: true, phase: 'generating', currentBatch: 0 });
 
+    // Continuous numbering for user-submitted ideas: extract the second number
+    // from each existing custom idea's `## IDEA 0.N:` header and pick max + 1.
+    const customMarkdowns = [
+      ...allIdeasRef.current.filter((i) => i.id.startsWith('custom-')).map((i) => i.content),
+      ...(externalDiscarded ?? []).filter((i) => i.id.startsWith('custom-')).map((i) => i.rawMarkdown),
+    ];
+    const seenSeedIndices = customMarkdowns
+      .map((md) => {
+        const m = md.match(/##\s*IDEA\s+0[.:](\d+)/i);
+        return m ? parseInt(m[1], 10) : 0;
+      })
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const seedIndex = (seenSeedIndices.length > 0 ? Math.max(...seenSeedIndices) : 0) + 1;
+
     try {
       setPhase('generating');
       const devRes = await fetch('/api/mining/develop', {
@@ -649,6 +682,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
           userContext,
           seedIdea: customIdea,
           batchNumber: 0,
+          seedIndex,
           modelChoice,
         }),
         signal: abortControllerRef.current.signal,

@@ -81,14 +81,16 @@ export function buildDevelopPrompt(opts: {
   userContext: string;
   seedIdea: string;
   batchNumber?: number;
+  seedIndex?: number;
 }): string {
   const bn = opts.batchNumber ?? 0;
+  const si = opts.seedIndex ?? 1;
   return [
     temporalAnchor(),
     section("Founder Context", opts.userContext),
     section("Raw Idea from Founder", opts.seedIdea),
     `The founder has submitted their own raw idea above. Your job is to **develop and frame it** — NOT generate new ideas.`,
-    `Output exactly ONE idea using your Output Contract, headed \`## IDEA ${bn}.1: <Title>\`.`,
+    `Output exactly ONE idea using your Output Contract, headed \`## IDEA ${bn}.${si}: <Title>\`.`,
     `Preserve the founder's core intent. Sharpen, flesh out, and fill in missing sections per your contract (Hook, Customer, Wedge, Unfair Advantage, etc.).`,
     `The **Why Now** must reflect today's date (above) — not a 2023/2024 framing. Anchor enablers to current capabilities.`,
     `If the founder's raw idea violates Founder-Market Fit or the Win Condition, still develop it — but flag the tension in the Unfair Advantage section so the VC critique can address it.`,

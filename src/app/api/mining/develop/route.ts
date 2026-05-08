@@ -6,11 +6,12 @@ import type { ModelChoice } from "@/lib/types";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userContext, seedIdea, batchNumber = 0, modelChoice } =
+  const { userContext, seedIdea, batchNumber = 0, seedIndex = 1, modelChoice } =
     (await req.json()) as {
       userContext?: string;
       seedIdea?: string;
       batchNumber?: number;
+      seedIndex?: number;
       modelChoice?: ModelChoice;
     };
 
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
   return streamSkill({
     skill: "futurist",
     model: modelChoice ?? DEFAULT_MODEL,
-    userMessage: buildDevelopPrompt({ userContext, seedIdea, batchNumber }),
+    userMessage: buildDevelopPrompt({ userContext, seedIdea, batchNumber, seedIndex }),
     systemAppend: [
       `You are in **SEED-DEVELOPMENT MODE** — not batch generation.`,
       ``,
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
       `3. Frame it using your standard Output Contract (Hook, Why Now, Problem, Solution, Target Customer, Revenue Model, Founder Fit, Combinatorial Angle, Expansion Path).`,
       `4. If the founder's idea has obvious founder-market-fit tension, flag it in the **Founder Fit** section so the VC critique can address it — but still develop it faithfully.`,
       ``,
-      `Output exactly ONE idea, headed \`## IDEA 0.1: <Title>\`. No other ideas. No "here are some alternatives." Just the one idea the founder asked you to develop.`,
+      `Output exactly ONE idea, headed \`## IDEA ${batchNumber}.${seedIndex}: <Title>\`. No other ideas. No "here are some alternatives." Just the one idea the founder asked you to develop.`,
     ].join("\n"),
   });
 }
