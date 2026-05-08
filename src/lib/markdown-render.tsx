@@ -131,16 +131,21 @@ export function renderMarkdownBlock(raw: string): ReactNode {
         items.push({ text: lines[i].replace(/^[\s]*[-*•]\s+/, ''), depth });
         i++;
       }
-      blocks.push(
-        <ul key={`ul-${bk++}`} className="space-y-1 my-2 ml-1">
-          {items.map((it, idx) => (
-            <li key={idx} className="text-sm text-zinc-300 leading-relaxed flex gap-2" style={{ paddingLeft: `${it.depth * 16}px` }}>
-              <span className={`shrink-0 ${it.depth > 0 ? 'text-zinc-600' : 'text-zinc-500'}`}>{it.depth > 0 ? '◦' : '▸'}</span>
-              <span>{renderInline(inline(it.text), `${bk}-${idx}`)}</span>
-            </li>
-          ))}
-        </ul>,
-      );
+      // Drop items whose content is just punctuation/dashes (e.g. `- --` the
+      // model occasionally emits as a stylistic separator).
+      const realItems = items.filter((it) => /[\p{L}\p{N}]/u.test(it.text));
+      if (realItems.length > 0) {
+        blocks.push(
+          <ul key={`ul-${bk++}`} className="space-y-1 my-2 ml-1">
+            {realItems.map((it, idx) => (
+              <li key={idx} className="text-sm text-zinc-300 leading-relaxed flex gap-2" style={{ paddingLeft: `${it.depth * 16}px` }}>
+                <span className={`shrink-0 ${it.depth > 0 ? 'text-zinc-600' : 'text-zinc-500'}`}>{it.depth > 0 ? '◦' : '▸'}</span>
+                <span>{renderInline(inline(it.text), `${bk}-${idx}`)}</span>
+              </li>
+            ))}
+          </ul>,
+        );
+      }
       continue;
     }
 

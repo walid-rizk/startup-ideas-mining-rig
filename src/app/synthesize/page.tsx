@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { AppHeader } from '@/components/app-header';
@@ -64,6 +64,14 @@ export default function SynthesizePage() {
       if (run && !run.isRunning) clearPhaseRun('synthesize');
     };
   }, []);
+
+  // Auto-scroll the streaming output to the bottom as new tokens arrive.
+  const outputContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isRunning) return;
+    const el = outputContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [output, isRunning]);
 
   if (!ready) return null;
 
@@ -387,7 +395,10 @@ ${bodyHtml}
                   </Button>
                 </div>
               </div>
-              <div className="bg-zinc-950 rounded-lg p-5 border border-zinc-800 min-h-[400px] max-h-[700px] overflow-y-auto">
+              <div
+                ref={outputContainerRef}
+                className="bg-zinc-950 rounded-lg p-5 border border-zinc-800 min-h-[400px] max-h-[700px] overflow-y-auto"
+              >
                 {displayOutput ? (
                   <MarkdownBlock raw={displayOutput} />
                 ) : (
