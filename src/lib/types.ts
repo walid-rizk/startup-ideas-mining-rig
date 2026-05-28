@@ -52,6 +52,7 @@ export const MODEL_OPTIONS: Array<ModelChoice & { label: string }> = [
   { provider: "anthropic", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
   { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { provider: "anthropic", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
+  { provider: "anthropic", model: "claude-opus-4-8", label: "Claude Opus 4.8" },
   { provider: "openai", model: "gpt-5.4-mini", label: "GPT 5.4 Mini" },
   { provider: "openai", model: "gpt-5.4", label: "GPT 5.4" },
   { provider: "openai", model: "gpt-5.5", label: "GPT 5.5" },
