@@ -4,10 +4,12 @@ A Next.js app that autonomously identifies, validates, and specs startup ideas t
 
 ## Stack
 - **Framework:** Next.js 16 (App Router, Turbopack), React 19, TypeScript
-- **LLM:** Vercel AI SDK with Anthropic (`claude-sonnet-4-5`, `claude-haiku-4-5`) and Google (`gemini-2.5-flash`, `gemini-2.5-pro`) providers. Selected per-session via `SessionToolbar`.
+- **LLM:** Vercel AI SDK (`ai@3.x`) with Anthropic (Haiku 4.5 → Fable 5), Google (Gemini 2.5/3.x), and OpenAI (GPT 5.x) providers. Full list in `MODEL_OPTIONS` (`src/lib/types.ts`). Selected per-session via `SessionToolbar`. Opus 4.7+/Fable 5 reject sampling params — `providers.ts` strips `temperature`/`top_p`/`top_k` at the fetch layer for those models (`modelSupportsSampling`).
+- **Web search:** NOT wired — `ai@3.x` providers have no search tools. `modelHasLiveSearch()` in `types.ts` is the central switch (currently always false); the verify route and Verify UI both read it, and the data-miner runs in an explicit NO-LIVE-SEARCH mode (no fabricated citations, `Knowledge:`/`Proxy:`/`Inferred:` labels, Market Confidence capped at MODERATE). Flipping on real search requires an AI SDK major upgrade.
 - **UI:** Tailwind + shadcn/ui, Framer Motion, lucide-react
 - **Persistence:** Browser IndexedDB (Zod-validated, auto-migrated from localStorage) — no backend database.
 - **Validation:** Zod schemas on session load/import
+- **Tests:** `npm test` (vitest) — golden-fixture suites for `parsers.ts`, `streaming.ts`, and scoring in `src/lib/__tests__/`. Update fixtures in lockstep with any output-contract change.
 
 ## Architecture
 
@@ -36,17 +38,22 @@ Skills are loaded at runtime by `src/lib/skills.ts` (`loadSkill(name)`) — pars
 ### Prompt builders (`src/lib/prompt-builders.ts`)
 Pure functions that construct the user-message body for each skill invocation. Keep user-message assembly here; keep role/contract in the `SKILL.md`.
 
-### API routes (`src/app/api/mining/*`)
+### API routes (`src/app/api/*`)
 Thin handlers — each parses input, calls its prompt builder, and delegates to `streamSkill()`.
 - `/api/mining/intake` — conversational intake (multi-turn messages)
 - `/api/mining/thesis` — build founder thesis
 - `/api/mining/generate` — futurist ideas (batch)
+- `/api/mining/develop` — futurist in seed-development mode: frames ONE founder-submitted idea (War Room "Your Idea" flow) via a `systemAppend` override
 - `/api/mining/critique` — vc-partner memos
-- `/api/mining/verify` — data-miner market research
+- `/api/mining/verify` — data-miner market research (passes `searchEnabled` from `modelHasLiveSearch()`)
 - `/api/mining/stress-test` — stress-tester adversarial analysis
 - `/api/mining/shape` — product-manager PRD
 - `/api/mining/blueprint` — cto technical plan
 - `/api/mining/synthesize` — synthesizer final packet
+
+Non-LLM utility routes:
+- `/api/parse-resume` — server-side PDF text extraction (unpdf) for intake uploads
+- `/api/fetch-url` — LinkedIn-only profile fetch (hostname-allowlisted) for intake
 
 ### Session state (`src/lib/session-context.tsx`, `src/lib/session.ts`)
 Single `Session` object in React context, debounced-persisted to IndexedDB (`idea-mining-rig` database, `session` store). Shape (see `src/lib/types.ts`):
@@ -54,14 +61,14 @@ Single `Session` object in React context, debounced-persisted to IndexedDB (`ide
 { id, createdAt, updatedAt, founderContext, thesis, modelChoice,
   intakeMessages, survivors, allIdeas, discardedIdeas, verifications, stressTests, prds, blueprints, synthesis, syntheses }
 ```
-Survivors carry structured fields parsed from the vc-partner memo (`verdict`, `moatScore`, `founderFitScore`, `marketTimingScore`, `distributionEdgeScore`, `oneLiner`, `bullCase`, `bearCase`, `comparableCompanies`, `marketSizing`, `unitEconomics`, `keyRisks`, etc.). The `promoted` boolean tracks founder-overridden SOFT_PASS ideas that were manually promoted to survivors. The `pinned` boolean protects ideas from being cleared. Parsing logic lives in `src/components/mining/war-room.tsx` (`parseVerdicts`).
+Survivors carry structured fields parsed from the vc-partner memo (`verdict`, `moatScore`, `founderFitScore`, `marketTimingScore`, `distributionEdgeScore`, `oneLiner`, `bullCase`, `bearCase`, `comparableCompanies`, `marketSizing`, `unitEconomics`, `keyRisks`, etc.). The `promoted` boolean tracks founder-overridden ideas manually added to survivors (promoted SOFT_PASSes, or custom ideas added on `/verify` which carry no verdict). The `pinned` boolean protects ideas from being cleared. All parsing logic lives in `src/lib/parsers.ts` (`parseIdeasFromText`, `parseVerdicts`, `isolateMemoSection`, field extractors) — covered by golden-fixture tests in `src/lib/__tests__/parsers.test.ts`.
 
 ### Scoring & Confidence Pipeline
 Ideas accumulate structured signals across phases:
 - **VC Partner (Mine):** verdict + 4-dimension scores (Moat, Founder Fit, Market Timing, Distribution Edge, each 1-10)
 - **Data Miner (Verify):** **Market Confidence** rating (STRONG / MODERATE / WEAK / INSUFFICIENT) — emitted as the first line after the report title, parsed by `parseMarketConfidence()` in both `verify-session.tsx` and `page.tsx`
 - **Stress Tester (Verify):** **Stress Severity** rating (CRITICAL / HIGH / MODERATE / LOW) — emitted as `**Overall: [LEVEL]**`, parsed by `parseStressSeverity()` in both `stress-test-session.tsx` and `page.tsx`
-- **Dashboard (derived):** **Idea Score** (0–10) — computed by `scoreFromSignals()` in `src/lib/session.ts`. Base = `0.7 × mean(VC dims) + 0.3 × min(VC dims)` so a single catastrophic dimension (e.g. Distro 2 with three 9s) drags the score down rather than getting averaged out. Adjusted by market confidence (STRONG: +1.5, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5) and stress severity (CRITICAL: -3, HIGH: -1.5, MODERATE: 0, LOW: +0.5). Before any diligence phase completes, the score is flagged `preliminary` (UI prefixes with `~` and labels `EST`) but the math is not deflated — so completing diligence with neutral results doesn't cause a misleading score jump. Survivors on the dashboard are sorted by Idea Score (highest first); per-phase pages use `sortByProgress` (phase progress first, score as tiebreaker) so the next-to-work-on appears at top.
+- **Dashboard (derived):** **Idea Score** (0–10) — computed by `scoreFromSignals()` in `src/lib/session.ts`. Base = `0.7 × mean(VC dims) + 0.3 × min(VC dims)` so a single catastrophic dimension (e.g. Distro 2 with three 9s) drags the score down rather than getting averaged out. Adjusted by market confidence (STRONG: +1.5, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5) and stress severity (CRITICAL: -3, HIGH: -1.5, MODERATE: 0, LOW: +0.5). Until BOTH diligence signals exist (market confidence AND stress severity), the score is flagged `preliminary` (UI prefixes with `~` and labels `EST`) but the math is not deflated — so completing diligence with neutral results doesn't cause a misleading score jump. Survivors on the dashboard are sorted by Idea Score (highest first); per-phase pages use `sortByProgress` (phase progress first, score as tiebreaker) so the next-to-work-on appears at top. The dashboard's next-step nudge is funnel-narrowing: diligence runs wide across all survivors (the `/verify` page has a "Run all diligence" batch button), then guides the founder to go deep (PRD → blueprint → packet) on ONE top-scoring idea rather than all of them.
 
 ### Pages
 | Route | Component driver | Purpose |
@@ -78,7 +85,7 @@ Ideas accumulate structured signals across phases:
 Implemented in `src/components/mining/war-room.tsx`:
 1. POST to `/api/mining/generate` with `{ userContext, batchNumber }` → futurist returns 3 ideas (`## IDEA N.1`, `## IDEA N.2`, `## IDEA N.3`).
 2. POST to `/api/mining/critique` with those ideas → vc-partner returns memos (`## MEMO — IDEA N.M`) with structured fields.
-3. `parseVerdicts()` extracts per-idea structured fields using position-based slicing between `IDEA N.M` markers (do not regress to split-based parsing — it broke field isolation).
+3. `parseVerdicts()` (in `src/lib/parsers.ts`) extracts per-idea structured fields using position-based slicing between `IDEA N.M` markers, with exact-title fallback (do not regress to split-based parsing — it broke field isolation). Mined idea IDs are `${batch}-${n}-${timestamp}`; `ideaSectionKey()` derives the `batch.n` marker from them.
 4. Filter: keep `STRONG_INVEST` + `INVEST`, discard `SOFT_PASS` + `STRONG_PASS`.
 5. Repeat until target survivors reached (default 4) OR max batches completed (default 3). Both are user-configurable in the UI.
 
@@ -121,7 +128,7 @@ You can invoke any skill directly in this terminal to smoke-test output without 
 
 ## When modifying skills
 1. Edit `skills/<name>/SKILL.md` — frontmatter drives typing, body drives behavior.
-2. If you change the output contract, update the corresponding parser (`parseVerdicts` for vc-partner, etc.) and `IdeaResult` fields in `src/lib/types.ts` + `src/lib/session.ts` (Zod schema).
+2. If you change the output contract, update the corresponding parser in `src/lib/parsers.ts` (and its golden fixtures in `src/lib/__tests__/parsers.test.ts`), plus `IdeaResult` fields in `src/lib/types.ts` + `src/lib/session.ts` (Zod schema). Run `npm test`.
 3. If you add a new skill: add to `SkillName` union, add folder under `skills/`, add route under `src/app/api/mining/`, add page + session component if user-facing.
 
 ## When modifying session shape

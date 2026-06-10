@@ -1,9 +1,9 @@
 import { streamSkill } from "@/lib/providers";
 import { buildVerifyPrompt } from "@/lib/prompt-builders";
-import { DEFAULT_MODEL } from "@/lib/types";
+import { DEFAULT_MODEL, modelHasLiveSearch } from "@/lib/types";
 import type { ModelChoice } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   const { userContext, idea, vcMemo, modelChoice } = (await req.json()) as {
@@ -20,10 +20,16 @@ export async function POST(req: Request) {
     );
   }
 
+  const model = modelChoice ?? DEFAULT_MODEL;
   return streamSkill({
     skill: "data-miner",
-    model: modelChoice ?? DEFAULT_MODEL,
-    userMessage: buildVerifyPrompt({ userContext, ideaMarkdown: idea, vcMemo }),
+    model,
+    userMessage: buildVerifyPrompt({
+      userContext,
+      ideaMarkdown: idea,
+      vcMemo,
+      searchEnabled: modelHasLiveSearch(model),
+    }),
     temperature: 0.4,
     maxTokens: 12000,
   });

@@ -3,7 +3,7 @@ import { buildShapePrompt } from "@/lib/prompt-builders";
 import { DEFAULT_MODEL } from "@/lib/types";
 import type { ModelChoice } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   const { userContext, idea, vcMemo, marketResearch, modelChoice } = (await req.json()) as {

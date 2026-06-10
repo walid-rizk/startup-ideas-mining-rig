@@ -172,15 +172,47 @@ export default function Home() {
   const shapedCount = survivors.filter((s) => !!session.prds[s.id]).length;
   const blueprintedCount = survivors.filter((s) => !!session.blueprints[s.id]).length;
 
+  // Funnel-narrowing guidance: diligence runs wide (every survivor gets research
+  // + stress test), then the founder goes deep on ONE winner (PRD → blueprint →
+  // packet) instead of grinding every survivor through every phase.
   const nextStep = (() => {
     if (!hasIntake) return { href: '/intake', label: 'Start Intake', reason: 'Tell the rig who you are before it can generate ideas for you.' };
     if (!hasThesis) return { href: '/intake', label: 'Build Thesis', reason: 'Pick the angle that will guide idea generation.' };
     if (survivors.length === 0) return { href: '/mine', label: 'Start Mining', reason: 'Run the Gauntlet to surface investable ideas.' };
-    if (verifiedCount < survivors.length) return { href: '/verify', label: 'Verify Survivors', reason: `${survivors.length - verifiedCount} survivor${survivors.length - verifiedCount === 1 ? '' : 's'} still need${survivors.length - verifiedCount === 1 ? 's' : ''} market validation.` };
-    if (shapedCount < survivors.length) return { href: '/shape', label: 'Shape PRDs', reason: `${survivors.length - shapedCount} survivor${survivors.length - shapedCount === 1 ? '' : 's'} still need${survivors.length - shapedCount === 1 ? 's' : ''} a PRD.` };
-    if (blueprintedCount < survivors.length) return { href: '/blueprint', label: 'Architect Blueprints', reason: `${survivors.length - blueprintedCount} survivor${survivors.length - blueprintedCount === 1 ? '' : 's'} still need${survivors.length - blueprintedCount === 1 ? 's' : ''} a technical plan.` };
-    if (!session.synthesis) return { href: '/synthesize', label: 'Synthesize', reason: 'Package the session into an investor brief or build packet.' };
-    return { href: '/synthesize', label: 'Review Synthesis', reason: 'All phases complete. Revisit the final packet or rerun any phase.' };
+
+    const undiligenced = survivors.filter((s) => !session.verifications[s.id] || !session.stressTests[s.id]).length;
+    if (undiligenced > 0) {
+      return {
+        href: '/verify',
+        label: 'Run Diligence',
+        reason: `${undiligenced} survivor${undiligenced === 1 ? '' : 's'} still need${undiligenced === 1 ? 's' : ''} market research + stress testing.`,
+      };
+    }
+
+    // Diligence complete — narrow to one. survivors[] is sorted by Idea Score.
+    const shaped = survivors.filter((s) => !!session.prds[s.id]);
+    if (shaped.length === 0) {
+      const top = survivors[0];
+      return {
+        href: `/shape?idea=${top.id}`,
+        label: 'Shape Your Top Idea',
+        reason: `Diligence done. Go deep on one winner — "${top.title}" scores highest.`,
+      };
+    }
+
+    const needsBlueprint = shaped.find((s) => !session.blueprints[s.id]);
+    if (needsBlueprint) {
+      return {
+        href: `/blueprint?idea=${needsBlueprint.id}`,
+        label: 'Architect It',
+        reason: `"${needsBlueprint.title}" has a PRD — turn it into a technical blueprint.`,
+      };
+    }
+
+    if (!session.synthesis && session.syntheses.length === 0) {
+      return { href: '/synthesize', label: 'Synthesize', reason: 'Package your deep-dive idea into an investor brief or build packet.' };
+    }
+    return { href: '/synthesize', label: 'Review Synthesis', reason: 'Pipeline complete for your focus idea. Revisit the packet, or go deep on another survivor.' };
   })();
 
   return (

@@ -139,15 +139,25 @@ export function buildVerifyPrompt(opts: {
   userContext: string;
   ideaMarkdown: string;
   vcMemo?: string | null;
+  searchEnabled?: boolean;
 }): string {
+  const evidenceInstructions = opts.searchEnabled
+    ? [
+        `Produce a Market Research report per your Output Contract. Use web search for competitor and market size claims. Cite sources with dates. Label proxy reasoning explicitly.`,
+        `Market size numbers and competitor status must be current as of today's date. Prefer sources dated within the last 18 months; flag any older figure as a proxy.`,
+      ]
+    : [
+        `Produce a Market Research report per your Output Contract, operating in **NO-LIVE-SEARCH MODE** (see Evidence Standards in your instructions): you have NO web search in this run.`,
+        `Do NOT fabricate citations, URLs, publication dates, or verbatim customer quotes. Every factual claim must be labeled \`Knowledge:\` (from training data, may be stale), \`Proxy:\`, or \`Inferred:\`. Paraphrase customer sentiment you genuinely recall instead of inventing quotes.`,
+        `Cap Market Confidence at MODERATE — STRONG requires live-search substantiation you cannot perform in this mode.`,
+      ];
   return [
     temporalAnchor(),
     section("Founder Context", opts.userContext),
     section("Idea to Validate", opts.ideaMarkdown),
     sectionOrMarker("VC Partner Memo", opts.vcMemo, "No VC partner memo available for this idea."),
-    `Produce a Market Research report per your Output Contract. Use web search for competitor and market size claims. Cite sources with dates. Label proxy reasoning explicitly.`,
+    ...evidenceInstructions,
     `CRITICAL: Your first line after the title MUST be a \`**Market Confidence: STRONG|MODERATE|WEAK|INSUFFICIENT**\` rating line followed by a one-sentence synthesis. The UI parses this line — do not omit it.`,
-    `Market size numbers and competitor status must be current as of today's date. Prefer sources dated within the last 18 months; flag any older figure as a proxy.`,
     `The Timing Verdict must be exactly one of: TOO_EARLY | JUST_RIGHT | SATURATED | TAR_PIT.`,
   ].join("\n");
 }
@@ -243,6 +253,6 @@ export function buildSynthesizePrompt(opts: {
     sectionOrMarker("Technical Blueprint (CTO)", opts.blueprint, "Founder skipped blueprint — no technical plan available."),
     `Use the date from the Temporal Anchor above in the \`*Date:*\` line of your output — verbatim. Do NOT substitute a different date.`,
     `Emit a ${opts.mode === "investor_brief" ? "**Investor Brief**" : "**Build Packet**"} per your Output Contract for that mode.`,
-    `Curate, don't dump — pull the sharpest 20% of each artifact. Target ${opts.mode === "investor_brief" ? "~2000" : "~3000"} words.`,
+    `Curate, don't dump — pull the sharpest 20% of each artifact. Target ${opts.mode === "investor_brief" ? "~1500" : "~3000"} words.`,
   ].join("\n");
 }

@@ -53,10 +53,34 @@ export const MODEL_OPTIONS: Array<ModelChoice & { label: string }> = [
   { provider: "anthropic", model: "claude-opus-4-6", label: "Claude Opus 4.6" },
   { provider: "anthropic", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
   { provider: "anthropic", model: "claude-opus-4-8", label: "Claude Opus 4.8" },
+  { provider: "anthropic", model: "claude-fable-5", label: "Claude Fable 5" },
   { provider: "openai", model: "gpt-5.4-mini", label: "GPT 5.4 Mini" },
   { provider: "openai", model: "gpt-5.4", label: "GPT 5.4" },
   { provider: "openai", model: "gpt-5.5", label: "GPT 5.5" },
 ];
+
+// Anthropic models that reject sampling parameters (temperature/top_p/top_k)
+// with a 400 error. streamSkill must omit temperature for these.
+const NO_SAMPLING_MODELS = new Set([
+  "claude-opus-4-7",
+  "claude-opus-4-8",
+  "claude-fable-5",
+]);
+
+export function modelSupportsSampling(choice: ModelChoice): boolean {
+  return !(choice.provider === "anthropic" && NO_SAMPLING_MODELS.has(choice.model));
+}
+
+// Central switch for live web search. No provider has search wired on the
+// current AI SDK version (ai@3.x) — add "provider:model" entries here once
+// the SDK is upgraded and search tools are passed in streamSkill. The verify
+// route and the Verify UI both read this so the data-miner prompt and the
+// user-facing notice stay in sync.
+const LIVE_SEARCH_MODELS = new Set<string>([]);
+
+export function modelHasLiveSearch(choice: ModelChoice): boolean {
+  return LIVE_SEARCH_MODELS.has(`${choice.provider}:${choice.model}`);
+}
 
 // ─── Verdicts ────────────────────────────────────────────────────────
 export type Verdict = "STRONG_INVEST" | "INVEST" | "SOFT_PASS" | "STRONG_PASS";
@@ -130,18 +154,4 @@ export interface Session {
   blueprints: Record<string, string>;
   synthesis: string | null;
   syntheses: SynthesisEntry[];
-}
-
-// ─── API shapes ──────────────────────────────────────────────────────
-export interface SkillRequest {
-  modelChoice?: ModelChoice;
-  userContext?: string;
-  idea?: { id: string; title: string; markdown: string };
-  ideasMarkdown?: string;
-  marketResearch?: string;
-  prd?: string;
-  blueprint?: string;
-  batchNumber?: number;
-  mode?: "investor_brief" | "build_packet";
-  messages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
 }

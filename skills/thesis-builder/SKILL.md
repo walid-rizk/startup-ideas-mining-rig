@@ -38,7 +38,7 @@ The interviewer labels each of Target / Lens / Customer with one of four prefixe
 
 | Prefix | What it means | How you must behave |
 | --- | --- | --- |
-| `Concrete:` | Founder gave a hard answer. | Hard constraint. All 3 theses must satisfy it. |
+| `Concrete:` | Founder gave a hard answer. | Hard constraint. Both theses must satisfy it. |
 | `Constrained:` | Partial / directional signal. | Scoping input. Theses should honor the direction but can explore within it. |
 | `Open:` | Founder wants wide generation on this axis. | Full latitude. Generate broadly on this axis. |
 | `Excludes:` | "Anything except X" signal. | Filter. No thesis may violate the exclusion. |
@@ -53,8 +53,8 @@ If the Founder Context has a `## Additional Thesis Signals` section, read it car
 
 - "Keeps referencing Harvey" → at least one thesis should rhyme with Harvey's playbook (vertical AI for a licensed profession).
 - "Bored by dev tools" → do not propose a dev tools thesis.
-- "Will not work in gambling, crypto, or defense" → hard exclusion across all 3 theses.
-- "Definitely B2B, prefers vertical over horizontal" → all 3 theses should be vertical B2B.
+- "Will not work in gambling, crypto, or defense" → hard exclusion across both theses.
+- "Definitely B2B, prefers vertical over horizontal" → both theses should be vertical B2B.
 
 ## Market Pulse — Timing Analysis
 

@@ -30,7 +30,7 @@ const WELCOME_MESSAGE = {
   id: 'welcome-1',
   role: 'assistant' as const,
   content:
-    "Welcome to the Startup Ideas Mining Rig. I am your Interviewer. I need to understand your background and goals to build your Founder Context.\n\nYou can either:\n• Answer my questions directly\n• Upload your resume (PDF, TXT, or DOCX) using the 📎 button\n\nShall we begin?",
+    "Welcome to the Startup Ideas Mining Rig. I am your Interviewer. I need to understand your background and goals to build your Founder Context.\n\nYou can either:\n• Answer my questions directly\n• Upload your resume (PDF or TXT) using the 📎 button, or paste a LinkedIn URL\n\nShall we begin?",
 };
 
 export default function IntakeSession() {
@@ -206,7 +206,8 @@ export default function IntakeSession() {
         }
         content = json.text;
       } else if (file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.doc')) {
-        content = `[Word Document: ${file.name}]\n\nWord files can't be parsed automatically. Please paste your resume text below or use a PDF instead.`;
+        // Don't attach an apology blob as "resume content" — fail loudly instead.
+        throw new Error('Word files can\'t be parsed. Please export your resume as PDF or paste the text directly.');
       } else {
         // Plain text, Markdown, etc.
         content = await file.text();
@@ -386,7 +387,7 @@ export default function IntakeSession() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt,.pdf,.doc,.docx,text/plain,application/pdf"
+            accept=".txt,.md,.pdf,text/plain,application/pdf"
             onChange={handleFileSelect}
             className="hidden"
           />
@@ -399,7 +400,7 @@ export default function IntakeSession() {
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading || fileLoading}
             className="border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-emerald-400"
-            title="Attach resume (PDF, TXT, DOCX)"
+            title="Attach resume (PDF or TXT)"
           >
             {fileLoading ? (
               <Loader2 className="w-4 h-4 animate-spin" />

@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { AppHeader } from '@/components/app-header';
 import IntakeSession from '@/components/mining/intake-session';
 import { useSession } from '@/lib/session-context';
-import { streamToText } from '@/lib/streaming';
+import { streamToText, ensureOk } from '@/lib/streaming';
 import { renderMarkdownBlock, MarkdownBlock } from '@/lib/markdown-render';
 import Link from 'next/link';
 import {
@@ -143,7 +143,7 @@ export default function IntakePage() {
         }),
         signal: abortRef.current.signal,
       });
-      if (!res.ok) throw new Error(`thesis-builder failed (${res.status})`);
+      await ensureOk(res, `thesis-builder failed (${res.status})`);
       const full = await streamToText(res, setThesisOutput);
       update({ thesis: full });
     } catch (err) {
@@ -166,10 +166,13 @@ export default function IntakePage() {
     setShowChat(false);
   };
 
-  const replaceSectionContent = (ctx: string, heading: string, newBody: string): string => {
+  // Replace the section body when the heading exists; append the section when
+  // it doesn't (e.g. the user hand-edited the context and removed it). Selecting
+  // a thesis must always wire it in — silently skipping corrupts the pipeline.
+  const upsertSection = (ctx: string, heading: string, newBody: string): string => {
     const re = new RegExp(`(## ${heading}\\n)[\\s\\S]*?(?=\\n## |$)`);
     if (re.test(ctx)) return ctx.replace(re, `$1${newBody}\n`);
-    return ctx;
+    return `${ctx.trimEnd()}\n\n## ${heading}\n${newBody}\n`;
   };
 
   const selectThesis = (num: number) => {
@@ -181,11 +184,11 @@ export default function IntakePage() {
       let ctx = prev.founderContext;
       ctx = ctx.replace(/\n\n## Chosen Thesis[\s\S]*$/, '').trimEnd();
       if (fields.targetMarket.trim()) {
-        ctx = replaceSectionContent(ctx, 'The Target', `Concrete: ${fields.targetMarket.trim()}`);
+        ctx = upsertSection(ctx, 'The Target', `Concrete: ${fields.targetMarket.trim()}`);
       }
-      ctx = replaceSectionContent(ctx, 'The Lens', `Concrete: ${fields.name}\n\n${fields.coreBet}`);
+      ctx = upsertSection(ctx, 'The Lens', `Concrete: ${fields.name}\n\n${fields.coreBet}`);
       if (fields.customer.trim()) {
-        ctx = replaceSectionContent(ctx, 'The Customer', `Concrete: ${fields.customer.trim()}`);
+        ctx = upsertSection(ctx, 'The Customer', `Concrete: ${fields.customer.trim()}`);
       }
       return { founderContext: ctx };
     });

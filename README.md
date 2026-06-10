@@ -37,7 +37,7 @@ Then open `.env.local` and fill in your key(s):
 | Provider | Env Variable | Models | Get a Key |
 |----------|-------------|--------|-----------|
 | Google | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini 2.5 Flash, 2.5 Pro, 3.0 Flash, 3.0 Pro, 3.1 Flash | [Google AI Studio](https://aistudio.google.com/apikey) |
-| Anthropic | `ANTHROPIC_API_KEY` | Claude Haiku 4.5, Sonnet 4.6, Opus 4.6, Opus 4.7 | [Anthropic Console](https://console.anthropic.com/settings/keys) |
+| Anthropic | `ANTHROPIC_API_KEY` | Claude Haiku 4.5, Sonnet 4.6, Opus 4.6, Opus 4.7, Opus 4.8, Fable 5 | [Anthropic Console](https://console.anthropic.com/settings/keys) |
 | OpenAI | `OPENAI_API_KEY` | GPT 5.4 Mini, 5.4, 5.5 | [OpenAI Platform](https://platform.openai.com/api-keys) |
 
 Your keys are stored locally in `.env.local`, which is gitignored and never leaves your machine.
@@ -60,7 +60,7 @@ The quality of every phase (idea generation, VC critique, market research, stres
 |-------|-------------|
 | **Intake** | Conversational interview captures your background, win condition, and any thesis signals into a **Founder Context**. The Thesis Builder then proposes 2 candidate theses (Grounded Pick + Wild Card) for you to choose from |
 | **Mine** | The Futurist generates 3 startup ideas per batch; the VC Partner writes investment memos with 4-dimension scoring (Moat, Founder Fit, Market Timing, Distribution Edge) and filters survivors. Max batches and target survivors are configurable (defaults: 3 batches, 4 survivors) |
-| **Verify** | Two lenses per survivor: **Market Research** (Data Miner validates market size, competitors, customer evidence; emits a Market Confidence rating) and **Stress Test** (Devil's Advocate finds the strongest failure modes; emits a severity rating) |
+| **Verify** | Two lenses per survivor: **Market Research** (Data Miner analyzes market size, competitors, customer evidence; emits a Market Confidence rating) and **Stress Test** (Devil's Advocate finds the strongest failure modes; emits a severity rating). A **Run all diligence** button batches both lenses across every survivor. ⚠️ No model currently has live web search wired in — research runs on training knowledge, every claim is labeled `Knowledge`/`Proxy`/`Inferred`, and Market Confidence is capped at MODERATE. Treat the report as a structured hypothesis map to verify, not as verified fact |
 | **Shape** | The Product Manager produces a lean PRD with user journey, metrics, and launch checklist |
 | **Architect** | The CTO creates a technical blueprint: stack, data model, API design, implementation phases |
 | **Synthesize** | Rolls up all artifacts into an investor brief or build packet |
@@ -79,7 +79,7 @@ Ideas accumulate structured signals as they move through the pipeline:
 | **Stress Severity** | Stress Tester (Verify) | CRITICAL, HIGH, MODERATE, LOW |
 | **Idea Score** | Dashboard (derived) | 0–10, evolves as phases complete |
 
-The **Idea Score** is a composite 0–10 score displayed across all pages. The base is a weighted blend of the four VC dimension scores (`0.7 × mean + 0.3 × min`) so a single catastrophic dimension drags the score down rather than getting averaged out. Diligence phases then shift the score: Market Confidence (STRONG: +1.5, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5), Stress Severity (LOW: +0.5, MODERATE: 0, HIGH: -1.5, CRITICAL: -3). Before any diligence phase runs, the score is shown with a `~` prefix and `EST` label to flag it as preliminary; once any phase completes, the validated score appears in color (emerald 8+, cyan 6–7.9, amber 4–5.9, red <4).
+The **Idea Score** is a composite 0–10 score displayed across all pages. The base is a weighted blend of the four VC dimension scores (`0.7 × mean + 0.3 × min`) so a single catastrophic dimension drags the score down rather than getting averaged out. Diligence phases then shift the score: Market Confidence (STRONG: +1.5, MODERATE: 0, WEAK: -2, INSUFFICIENT: -0.5), Stress Severity (LOW: +0.5, MODERATE: 0, HIGH: -1.5, CRITICAL: -3). Until *both* diligence phases (research + stress test) have run, the score is shown with a `~` prefix and `EST` label to flag it as preliminary; once both complete, the validated score appears in color (emerald 8+, cyan 6–7.9, amber 4–5.9, red <4).
 
 The dashboard sorts survivors by Idea Score (best first). Per-phase pages (Verify, Shape, Architect, Synthesize) sort by phase progress first (more phases completed = higher rank), then by Idea Score as a tiebreaker, so you always know what to work on next.
 

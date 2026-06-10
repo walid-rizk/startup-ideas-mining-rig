@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ModelChoice } from '@/lib/types';
-import { streamToText } from '@/lib/streaming';
+import { streamToText, ensureOk } from '@/lib/streaming';
 import { extractTldr } from '@/lib/markdown-render';
 import { marked } from 'marked';
 import { usePhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, clearPhaseRun, getPhaseRun } from '@/lib/phase-status';
@@ -197,7 +197,7 @@ export default function ShapeSession({ userContext, ideaId, idea, vcMemo, market
         signal: ac.signal,
       });
 
-      if (!response.ok) throw new Error('Failed to shape idea');
+      await ensureOk(response, 'Failed to shape idea');
 
       const fullText = await streamToText(response, (text) => updatePhaseOutput('shape', runId, text));
       completePhaseRun('shape', runId);

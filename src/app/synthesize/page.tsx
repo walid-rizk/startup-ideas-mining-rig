@@ -6,9 +6,9 @@ import { Card } from '@/components/ui/card';
 import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
 import { sortByProgress } from '@/lib/session';
-import { streamToText } from '@/lib/streaming';
+import { streamToText, ensureOk } from '@/lib/streaming';
 import { MarkdownBlock } from '@/lib/markdown-render';
-import { Package, Play, Square, Download, FileDown, Trophy, FileText, ChevronRight, Clock, ArrowLeft, Trash2, CheckCircle, Lock, ArrowRight } from 'lucide-react';
+import { Package, Square, Download, FileDown, Trophy, FileText, ChevronRight, Clock, ArrowLeft, Trash2, CheckCircle, Lock, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import type { IdeaResult, SynthesisEntry } from '@/lib/types';
 import { reconstructVcMemo } from '@/lib/prompt-builders';
@@ -124,7 +124,7 @@ export default function SynthesizePage() {
         }),
         signal: ac.signal,
       });
-      if (!res.ok) throw new Error(`synthesizer failed (${res.status})`);
+      await ensureOk(res, `synthesizer failed (${res.status})`);
       const full = await streamToText(res, (text) => updatePhaseOutput('synthesize', runId, text));
       completePhaseRun('synthesize', runId);
       const entry: SynthesisEntry = {
@@ -223,7 +223,9 @@ ${bodyHtml}
               <div className="flex-1">
                 <h2 className="text-lg font-semibold text-zinc-100">Package Your Work</h2>
                 <p className="text-sm text-zinc-400">
-                  Select a survivor that has completed all phases, then generate a Build Packet or Investor Brief.
+                  Select a survivor, then generate a deliverable. An <span className="text-purple-300">Investor Brief</span> works
+                  at any stage (missing research is labeled as thin); a <span className="text-emerald-300">Build Packet</span> requires
+                  a PRD and Blueprint.
                 </p>
               </div>
             </div>
@@ -239,7 +241,11 @@ ${bodyHtml}
                   const hasStress = !!session.stressTests[s.id];
                   const hasPrd = !!session.prds[s.id];
                   const hasBlueprint = !!session.blueprints[s.id];
-                  const isReady = hasResearch && hasStress && hasPrd && hasBlueprint;
+                  // Gating mirrors the synthesizer skill's partial-pipeline rules:
+                  // build packet needs PRD + Blueprint; investor brief works at any
+                  // stage (the skill labels missing research as thin evidence).
+                  const buildReady = hasPrd && hasBlueprint;
+                  const allDone = hasResearch && hasStress && hasPrd && hasBlueprint;
                   const isSelected = selectedId === s.id;
                   const phases = [
                     { label: 'Research', done: hasResearch },
@@ -251,23 +257,21 @@ ${bodyHtml}
                   return (
                     <div
                       key={s.id}
-                      onClick={() => isReady && setSelectedId(s.id)}
-                      className={`rounded-lg p-3 border transition-all ${
-                        isSelected && isReady
+                      onClick={() => setSelectedId(s.id)}
+                      className={`rounded-lg p-3 border transition-all cursor-pointer ${
+                        isSelected
                           ? 'border-emerald-500/60 bg-emerald-900/20'
-                          : isReady
-                            ? 'border-zinc-700 bg-zinc-800/50 cursor-pointer hover:border-zinc-500'
-                            : 'border-zinc-800 bg-zinc-900/30 opacity-50 cursor-not-allowed'
+                          : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-500'
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        {isReady ? (
+                        {allDone ? (
                           <CheckCircle className={`w-4 h-4 shrink-0 ${isSelected ? 'text-emerald-400' : 'text-zinc-500'}`} />
                         ) : (
                           <Lock className="w-4 h-4 shrink-0 text-zinc-600" />
                         )}
                         <div className="flex-1 min-w-0">
-                          <span className={`text-sm font-medium truncate block ${isReady ? 'text-zinc-100' : 'text-zinc-500'}`}>
+                          <span className="text-sm font-medium truncate block text-zinc-100">
                             {s.title}
                           </span>
                           <div className="flex gap-2 mt-1">
@@ -278,12 +282,14 @@ ${bodyHtml}
                             ))}
                           </div>
                         </div>
-                        {isSelected && isReady && !isRunning && (
+                        {isSelected && !isRunning && (
                           <div className="flex gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
                             <Button
                               onClick={() => run('build_packet')}
+                              disabled={!buildReady}
                               size="sm"
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs"
+                              title={buildReady ? undefined : 'Requires a PRD and a Blueprint — run Shape and Architect first'}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs disabled:opacity-40"
                             >
                               <Package className="w-3.5 h-3.5 mr-1.5" />
                               Build Packet
@@ -291,6 +297,7 @@ ${bodyHtml}
                             <Button
                               onClick={() => run('investor_brief')}
                               size="sm"
+                              title={hasResearch ? undefined : 'No market research yet — the brief will label evidence as thin'}
                               className="bg-purple-600 hover:bg-purple-700 text-white font-mono text-xs"
                             >
                               <FileText className="w-3.5 h-3.5 mr-1.5" />
@@ -306,7 +313,7 @@ ${bodyHtml}
                             </Button>
                           </div>
                         )}
-                        {!isReady && (() => {
+                        {!allDone && !isSelected && (() => {
                           const nextPhase = !hasResearch
                             ? { href: `/verify?idea=${s.id}`, label: 'Research', color: 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10' }
                             : !hasStress

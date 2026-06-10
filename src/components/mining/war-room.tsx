@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { X } from 'lucide-react';
 import {
@@ -26,13 +25,13 @@ import {
   ChevronDown,
   ChevronUp,
   Pin,
-  PinOff,
   ArrowUpCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ModelChoice, IdeaResult as PublicIdeaResult, Verdict } from '@/lib/types';
-import { streamToText } from '@/lib/streaming';
+import { streamToText, ensureOk } from '@/lib/streaming';
+import { parseIdeasFromText, parseVerdicts, isolateMemoSection, parseMemoFields, extractBullets } from '@/lib/parsers';
 import { renderMarkdownBlock } from '@/lib/markdown-render';
 import { useMiningStatus, setMiningStatus, setMiningAbort, getMiningAbort, getMiningStatus, useMiningOutput, setMiningOutput } from '@/lib/mining-status';
 
@@ -174,222 +173,6 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-function parseIdeasFromText(text: string, batchNum: number): IdeaResult[] {
-  const ideas: IdeaResult[] = [];
-  const ts = Date.now();
-
-  // Pattern matches: "## IDEA 1.1: Title" or "## IDEA 1: Title" or "### IDEA 1: Title"
-  const ideaSections = text.split(/(?=##\s*IDEA\s+\d+[\.:]\d*)/i).filter(s => s.trim());
-
-  for (let i = 0; i < ideaSections.length; i++) {
-    const section = ideaSections[i];
-    const headerMatch = section.match(/##\s*IDEA\s+(\d+)[\.:]\d*:?\s*(.+?)(?=\n)/i);
-    if (headerMatch) {
-      const title = headerMatch[2].trim().replace(/\*+$/, '').trim();
-      if (title && !ideas.find(idea => idea.title === title)) {
-        ideas.push({
-          id: `${batchNum}-${ideas.length + 1}-${ts}`,
-          title,
-          content: section.trim(),
-        });
-      }
-    }
-  }
-
-  // Fallback: try alternative patterns if no ideas found
-  if (ideas.length === 0) {
-    const altSections = text.split(/(?=###?\s*\d+\.)/i).filter(s => s.trim());
-    for (let i = 0; i < altSections.length; i++) {
-      const section = altSections[i];
-      const headerMatch = section.match(/###?\s*(\d+)\.\s*(.+?)(?=\n)/i);
-      if (headerMatch) {
-        const title = headerMatch[2].trim().replace(/\*+$/, '').trim();
-        if (title && !ideas.find(idea => idea.title === title)) {
-          ideas.push({
-            id: `${batchNum}-${ideas.length + 1}-${ts}`,
-            title,
-            content: section.trim(),
-          });
-        }
-      }
-    }
-  }
-
-  // Second fallback: look for "The Hook" pattern
-  if (ideas.length === 0) {
-    const hookPattern = /##\s*(.+?)\n([\s\S]*?)(?=##|$)/gi;
-    let match;
-    while ((match = hookPattern.exec(text)) !== null) {
-      const fullSection = match[0];
-      if (fullSection.includes('**The Hook**') || fullSection.includes('**Hook:**')) {
-        const title = match[1].replace(/^IDEA\s*\d+[\.:]\s*/i, '').trim();
-        if (title && !ideas.find(idea => idea.title === title)) {
-          ideas.push({
-            id: `${batchNum}-${ideas.length + 1}-${ts}`,
-            title,
-            content: fullSection.trim(),
-          });
-        }
-      }
-    }
-  }
-
-  return ideas;
-}
-
-function parseVerdicts(text: string, ideas: IdeaResult[]): IdeaResult[] {
-  // Position-based section isolation: find where each idea's memo starts
-  // in the raw text, sort by position, then slice between consecutive starts.
-  // This is far more robust than split+find, which fails silently when the
-  // model uses a non-standard header (e.g. `### MEMO`, `**MEMO...**`, no `##`).
-  const findIdeaStart = (idea: IdeaResult): number => {
-    const batchDotN = idea.id.replace('-', '.');
-    const escaped = batchDotN.replace('.', '\\.');
-    const candidates: RegExp[] = [
-      new RegExp(`^[ \\t]*#{1,4}[ \\t]*[^\\n]*MEMO[^\\n]*IDEA[ \\t]+${escaped}\\b`, 'mi'),
-      new RegExp(`^[ \\t]*#{1,4}[ \\t]*[^\\n]*IDEA[ \\t]+${escaped}\\b`, 'mi'),
-      new RegExp(`^[ \\t]*\\*\\*[^\\n]*IDEA[ \\t]+${escaped}[^\\n]*\\*\\*`, 'mi'),
-      new RegExp(`\\bIDEA[ \\t]+${escaped}\\b`, 'i'),
-    ];
-    for (const pat of candidates) {
-      const m = text.match(pat);
-      if (m && m.index !== undefined) {
-        const before = text.slice(0, m.index);
-        const lastNl = before.lastIndexOf('\n');
-        return lastNl + 1;
-      }
-    }
-    const titleIdx = text.indexOf(idea.title);
-    if (titleIdx >= 0) {
-      const before = text.slice(0, titleIdx);
-      const lastNl = before.lastIndexOf('\n');
-      return lastNl + 1;
-    }
-    return -1;
-  };
-
-  const starts = ideas
-    .map((idea) => ({ idea, start: findIdeaStart(idea) }))
-    .filter((p) => p.start >= 0)
-    .sort((a, b) => a.start - b.start);
-
-  const sectionMap = new Map<string, string>();
-  for (let i = 0; i < starts.length; i++) {
-    const end = i + 1 < starts.length ? starts[i + 1].start : text.length;
-    sectionMap.set(starts[i].idea.id, text.slice(starts[i].start, end).trim());
-  }
-
-  const extractField = (section: string, fieldName: string): string => {
-    const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = new RegExp(
-      `\\*\\*${escaped}:?\\*\\*\\s*([^\\n]+(?:\\n(?!\\s*(?:\\*\\*|#))[^\\n]*)*)`,
-      'i'
-    );
-    const match = section.match(pattern);
-    return match?.[1]?.trim().replace(/\*+/g, '').trim() ?? '';
-  };
-
-  return ideas.map(idea => {
-    const section = sectionMap.get(idea.id) ?? '';
-
-    let verdict: Verdict | undefined;
-    const verdictLine = section.match(/\*\*Verdict:\*\*\s*([\w_]+)/i);
-    const vv = verdictLine?.[1]?.toUpperCase().replace(/\s+/g, '_');
-    if (vv === 'STRONG_INVEST') verdict = 'STRONG_INVEST';
-    else if (vv === 'INVEST') verdict = 'INVEST';
-    else if (vv === 'SOFT_PASS') verdict = 'SOFT_PASS';
-    else if (vv === 'STRONG_PASS') verdict = 'STRONG_PASS';
-
-    if (!verdict) {
-      if (/strong[\s_]invest/i.test(section)) verdict = 'STRONG_INVEST';
-      else if (/\binvest\b/i.test(section)) verdict = 'INVEST';
-      else if (/soft[\s_]pass/i.test(section)) verdict = 'SOFT_PASS';
-      else if (/strong[\s_]pass|(?<!soft[\s_])\bpass\b/i.test(section)) verdict = 'STRONG_PASS';
-    }
-
-    const parseScore = (label: string): number => {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const m = section.match(new RegExp(`\\*\\*${escaped}[^*]*\\*\\*:?\\s*(\\d+)`, 'i'))
-        || section.match(new RegExp(`${escaped}[^:\\n]*:?\\s*(\\d+)`, 'i'));
-      return m ? parseInt(m[1]) : 0;
-    };
-    const moatVal = parseScore('Moat Score');
-    const fitVal = parseScore('Founder Fit Score');
-    const timingVal = parseScore('Market Timing Score');
-    const distVal = parseScore('Distribution Edge Score');
-
-    const parseScoreRationale = (scoreLabel: string): string => {
-      const escaped = scoreLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const line = section.match(
-        new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+[^\\n]*`, 'i'),
-      )?.[0] ?? '';
-      const r = line
-        .replace(new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+(?:/10)?`, 'i'), '')
-        .replace(/^\s*[—–\-:]\s*/, '')
-        .trim();
-      return r;
-    };
-    const moatRationale = parseScoreRationale('Moat Score');
-    const founderFitRationale = parseScoreRationale('Founder Fit Score');
-    const marketTimingRationale = parseScoreRationale('Market Timing Score');
-    const distributionEdgeRationale = parseScoreRationale('Distribution Edge Score');
-
-    const extractBulletList = (fieldName: string): string => {
-      const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const m = section.match(
-        new RegExp(
-          `\\*\\*${escaped}:?\\*\\*\\s*\\n?((?:\\s*[-*•][^\\n]*\\n?)+)`,
-          'i',
-        ),
-      );
-      if (m?.[1]) return m[1].trim();
-      return extractField(section, fieldName);
-    };
-
-    const oneLiner = extractField(section, 'One-Liner') || extractField(section, 'One Liner');
-    const bullCase = extractField(section, 'Bull Case');
-    const bearCase = extractField(section, 'Bear Case');
-    const comparableCompanies = extractField(section, 'Comparable Companies');
-    const marketSizing = extractField(section, 'Market Sizing');
-    const unitEconomics =
-      extractField(section, 'Unit Economics First-Cut') ||
-      extractField(section, 'Unit Economics');
-    const hairOnFireCheck = extractField(section, 'Hair-on-Fire Check');
-    const distributionPlan = extractField(section, 'Distribution Plan');
-    const keyRisks = extractBulletList('Key Risks');
-    const whatWouldChangeMind =
-      extractField(section, 'What Would Change My Mind') ||
-      extractField(section, "What Would Change My Mind");
-    const verdictRationale = extractField(section, 'Verdict Rationale');
-
-    return {
-      ...idea,
-      verdict,
-      critique: section,
-      oneLiner,
-      bullCase,
-      bearCase,
-      comparableCompanies,
-      marketSizing,
-      unitEconomics,
-      hairOnFireCheck,
-      distributionPlan,
-      keyRisks,
-      whatWouldChangeMind,
-      verdictRationale,
-      moatRationale,
-      founderFitRationale,
-      marketTimingRationale,
-      distributionEdgeRationale,
-      scores: {
-        moat: moatVal,
-        founderFit: fitVal,
-        marketTiming: timingVal,
-        distributionEdge: distVal,
-      },
-    };
-  });
-}
 
 export default function WarRoom({ userContext, modelChoice, onComplete, onBatchComplete, onDiscard, onRestore, onDeletePermanently, initialSurvivors, initialAllIdeas, discardedIdeas: externalDiscarded }: WarRoomProps) {
   const [phase, setPhase] = useState<MiningPhase>(() => {
@@ -532,7 +315,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
       signal: abortControllerRef.current?.signal,
     });
 
-    if (!generateResponse.ok) throw new Error('Failed to generate ideas');
+    await ensureOk(generateResponse, 'Failed to generate ideas');
 
     const ideasText = await streamToText(generateResponse, (text) => setMiningOutput({ generatedIdeas: text }));
     const batchIdeas = parseIdeasFromText(ideasText, batchNumber);
@@ -548,7 +331,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
       signal: abortControllerRef.current?.signal,
     });
 
-    if (!critiqueResponse.ok) throw new Error('Failed to critique ideas');
+    await ensureOk(critiqueResponse, 'Failed to critique ideas');
 
     const critiqueText = await streamToText(critiqueResponse, (text) => setMiningOutput({ critiqueOutput: text }));
     return parseVerdicts(critiqueText, batchIdeas);
@@ -686,7 +469,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
         }),
         signal: abortControllerRef.current.signal,
       });
-      if (!devRes.ok) throw new Error('Failed to develop idea');
+      await ensureOk(devRes, 'Failed to develop idea');
       const ideaText = await streamToText(devRes, (text) => setMiningOutput({ generatedIdeas: text }));
       const framed = parseIdeasFromText(ideaText, 0);
       if (framed.length === 0) throw new Error('Could not parse developed idea');
@@ -699,7 +482,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
         body: JSON.stringify({ userContext, ideas: ideaText, modelChoice }),
         signal: abortControllerRef.current.signal,
       });
-      if (!critRes.ok) throw new Error('Failed to critique idea');
+      await ensureOk(critRes, 'Failed to critique idea');
       const critText = await streamToText(critRes, (text) => setMiningOutput({ critiqueOutput: text }));
       const withVerdicts = parseVerdicts(critText, framed);
 
@@ -862,8 +645,8 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
           </div>
         </div>
 
-        {/* Mining settings — only show when survivors already exist (subsequent runs) */}
-        {!isRunning && !globalMining.isRunning && survivors.length > 0 && (
+        {/* Mining settings */}
+        {!isRunning && !globalMining.isRunning && (
           <div className="flex flex-col items-end gap-1 mt-1.5 px-4 text-[11px] font-mono text-zinc-600">
             <label className="flex items-center gap-1.5">
               <span>batches</span>
@@ -1071,7 +854,7 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
                         )}
                         {idea.oneLiner && (
                           <p className="mt-1.5 text-xs text-zinc-400 italic leading-snug line-clamp-2">
-                            "{idea.oneLiner}"
+                            &quot;{idea.oneLiner}&quot;
                           </p>
                         )}
                       </div>
@@ -1425,101 +1208,26 @@ export default function WarRoom({ userContext, modelChoice, onComplete, onBatchC
 
                     // Always re-isolate + re-parse at render time so old contaminated
                     // persisted data (bundled critique, wrong stored fields) is corrected.
-                    const isolateMyMemo = (raw: string): string => {
-                      if (!raw) return '';
-                      const batchDotN = s.id.replace('-', '.');
-                      const esc = batchDotN.replace('.', '\\.');
-                      const startPatterns = [
-                        new RegExp(`^[ \\t]*#{1,4}[ \\t]*[^\\n]*MEMO[^\\n]*IDEA[ \\t]+${esc}\\b`, 'mi'),
-                        new RegExp(`^[ \\t]*#{1,4}[ \\t]*[^\\n]*IDEA[ \\t]+${esc}\\b`, 'mi'),
-                        new RegExp(`^[ \\t]*\\*\\*[^\\n]*IDEA[ \\t]+${esc}[^\\n]*\\*\\*`, 'mi'),
-                        new RegExp(`\\bIDEA[ \\t]+${esc}\\b`, 'i'),
-                      ];
-                      let startIdx = -1;
-                      for (const p of startPatterns) {
-                        const m = raw.match(p);
-                        if (m && m.index !== undefined) {
-                          const before = raw.slice(0, m.index);
-                          startIdx = before.lastIndexOf('\n') + 1;
-                          break;
-                        }
-                      }
-                      if (startIdx < 0) return raw;
-                      // Start next-memo search from the line AFTER our header to avoid re-matching self
-                      const firstNl = raw.indexOf('\n', startIdx);
-                      const searchFrom = firstNl >= 0 ? firstNl + 1 : startIdx + 1;
-                      const after = raw.slice(searchFrom);
-                      const nextMatch = after.match(/^[ \t]*(?:#{1,4}|\*\*)[ \t]*[^\n]*IDEA[ \t]+\d+\.\d+\b/mi);
-                      let endIdx = raw.length;
-                      if (nextMatch && nextMatch.index !== undefined) {
-                        endIdx = searchFrom + nextMatch.index;
-                      }
-                      return raw.slice(startIdx, endIdx).trim();
-                    };
+                    const memo = isolateMemoSection(s.critique || '', s.id, s.title);
+                    const f = parseMemoFields(memo);
 
-                    const memo = isolateMyMemo(s.critique || '');
-
-                    // Re-extract every field from the isolated memo so we don't trust
-                    // stored structured fields (which may carry old contamination).
-                    const extractField = (section: string, fieldName: string): string => {
-                      const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                      const pat = new RegExp(
-                        `\\*\\*${escaped}:?\\*\\*\\s*([^\\n]+(?:\\n(?!\\s*(?:\\*\\*|#))[^\\n]*)*)`,
-                        'i',
-                      );
-                      const m = section.match(pat);
-                      return m?.[1]?.trim().replace(/\*+/g, '').trim() ?? '';
-                    };
-                    const extractBullets = (section: string, fieldName: string): string[] => {
-                      const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                      // Require at least one space after the bullet marker so we don't match
-                      // horizontal rules (`---`) or `***` separators as bullets.
-                      const m = section.match(
-                        new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\n?((?:\\s*[-*•][ \\t]+[^\\n]*\\n?)+)`, 'i'),
-                      );
-                      const isSeparator = (s: string) => /^[-*_=]{2,}\s*$/.test(s.trim());
-                      if (!m?.[1]) {
-                        const flat = extractField(section, fieldName);
-                        return flat
-                          ? flat
-                              .split(/\n/)
-                              .map((l) => l.trim())
-                              .filter((l) => l && !isSeparator(l))
-                          : [];
-                      }
-                      return m[1]
-                        .split('\n')
-                        .map((l) => l.replace(/^\s*[-*•]\s+/, '').replace(/\*+/g, '').trim())
-                        .filter((l) => l && !isSeparator(l));
-                    };
-                    const extractScoreRationale = (label: string): string => {
-                      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                      const line = memo.match(
-                        new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+[^\\n]*`, 'i'),
-                      )?.[0] ?? '';
-                      return line
-                        .replace(new RegExp(`\\*\\*${escaped}:?\\*\\*\\s*\\d+(?:/10)?`, 'i'), '')
-                        .replace(/^\s*[—–\-:]\s*/, '')
-                        .trim();
-                    };
-
-                    const oneLiner = extractField(memo, 'One-Liner') || extractField(memo, 'One Liner');
-                    const bullCase = extractField(memo, 'Bull Case');
-                    const bearCase = extractField(memo, 'Bear Case');
-                    const comparableCompanies = extractField(memo, 'Comparable Companies');
-                    const marketSizing = extractField(memo, 'Market Sizing');
-                    const unitEconomics =
-                      extractField(memo, 'Unit Economics First-Cut') ||
-                      extractField(memo, 'Unit Economics');
-                    const hairOnFireCheck = extractField(memo, 'Hair-on-Fire Check');
-                    const distributionPlan = extractField(memo, 'Distribution Plan');
+                    const {
+                      oneLiner,
+                      bullCase,
+                      bearCase,
+                      comparableCompanies,
+                      marketSizing,
+                      unitEconomics,
+                      hairOnFireCheck,
+                      distributionPlan,
+                      whatWouldChangeMind,
+                      verdictRationale,
+                      moatRationale,
+                      founderFitRationale,
+                      marketTimingRationale,
+                      distributionEdgeRationale,
+                    } = f;
                     const keyRiskBullets = extractBullets(memo, 'Key Risks');
-                    const whatWouldChangeMind = extractField(memo, 'What Would Change My Mind');
-                    const verdictRationale = extractField(memo, 'Verdict Rationale');
-                    const moatRationale = extractScoreRationale('Moat Score');
-                    const founderFitRationale = extractScoreRationale('Founder Fit Score');
-                    const marketTimingRationale = extractScoreRationale('Market Timing Score');
-                    const distributionEdgeRationale = extractScoreRationale('Distribution Edge Score');
 
                     const cards: Array<{ key: string; label: string; icon: string; color: string; value: string; kind?: 'bullets' | 'quote' }> = [
                       { key: 'verdict', label: 'Verdict Rationale', icon: '⚖️', color: 'text-amber-400', value: verdictRationale },

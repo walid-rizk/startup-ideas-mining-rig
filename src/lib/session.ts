@@ -173,38 +173,45 @@ function deduplicateIdeas(
   return { ideas: deduped, maps: remapped };
 }
 
+// Validates raw data and applies in-place migrations (ID dedup, legacy
+// synthesis → syntheses). Throws on invalid data — callers decide whether to
+// surface or swallow the error.
+function migrateSession(raw: unknown): Session {
+  const parsed = sessionSchema.parse(raw);
+
+  const { ideas: survivors, maps: [v1, st1, p1, b1] } = deduplicateIdeas(
+    parsed.survivors,
+    [parsed.verifications, parsed.stressTests, parsed.prds, parsed.blueprints],
+  );
+  parsed.survivors = survivors;
+  parsed.verifications = v1;
+  parsed.stressTests = st1;
+  parsed.prds = p1;
+  parsed.blueprints = b1;
+
+  const { ideas: allIdeas } = deduplicateIdeas(parsed.allIdeas, []);
+  parsed.allIdeas = allIdeas;
+
+  const { ideas: discarded } = deduplicateIdeas(parsed.discardedIdeas, []);
+  parsed.discardedIdeas = discarded;
+
+  if (parsed.synthesis && parsed.syntheses.length === 0) {
+    parsed.syntheses = [{
+      id: crypto.randomUUID(),
+      createdAt: parsed.updatedAt,
+      ideaId: parsed.survivors[0]?.id ?? 'unknown',
+      ideaTitle: parsed.survivors[0]?.title ?? 'Unknown Idea',
+      mode: 'build_packet',
+      content: parsed.synthesis,
+    }];
+  }
+
+  return parsed;
+}
+
 function hydrateSession(raw: unknown): Session | null {
   try {
-    const parsed = sessionSchema.parse(raw);
-
-    const { ideas: survivors, maps: [v1, st1, p1, b1] } = deduplicateIdeas(
-      parsed.survivors,
-      [parsed.verifications, parsed.stressTests, parsed.prds, parsed.blueprints],
-    );
-    parsed.survivors = survivors;
-    parsed.verifications = v1;
-    parsed.stressTests = st1;
-    parsed.prds = p1;
-    parsed.blueprints = b1;
-
-    const { ideas: allIdeas } = deduplicateIdeas(parsed.allIdeas, []);
-    parsed.allIdeas = allIdeas;
-
-    const { ideas: discarded } = deduplicateIdeas(parsed.discardedIdeas, []);
-    parsed.discardedIdeas = discarded;
-
-    if (parsed.synthesis && parsed.syntheses.length === 0) {
-      parsed.syntheses = [{
-        id: crypto.randomUUID(),
-        createdAt: parsed.updatedAt,
-        ideaId: parsed.survivors[0]?.id ?? 'unknown',
-        ideaTitle: parsed.survivors[0]?.title ?? 'Unknown Idea',
-        mode: 'build_packet',
-        content: parsed.synthesis,
-      }];
-    }
-
-    return parsed;
+    return migrateSession(raw);
   } catch (err) {
     console.warn("[session] failed to parse:", err);
     return null;
@@ -267,7 +274,9 @@ export function exportSession(session: Session, filename?: string): void {
 export async function importSessionFromFile(file: File): Promise<Session> {
   const text = await file.text();
   const raw = JSON.parse(text);
-  return sessionSchema.parse(raw);
+  // Same path as IndexedDB hydration so imports get ID dedup + legacy
+  // migrations too — but invalid files throw so the UI can show why.
+  return migrateSession(raw);
 }
 
 // ─── Derivation helpers ─────────────────────────────────────────────
@@ -336,7 +345,9 @@ export function scoreFromSignals(
   if (conf) score += MARKET_ADJ[conf];
   if (sev) score += STRESS_ADJ[sev];
 
-  const preliminary = conf == null && sev == null;
+  // Preliminary until BOTH diligence signals are in — with only one of
+  // market confidence / stress severity, half the adjustment is missing.
+  const preliminary = conf == null || sev == null;
   return { score: Math.round(Math.max(0, Math.min(10, score)) * 10) / 10, preliminary };
 }
 

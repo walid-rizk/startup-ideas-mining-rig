@@ -3,7 +3,7 @@ import { buildDevelopPrompt } from "@/lib/prompt-builders";
 import { DEFAULT_MODEL } from "@/lib/types";
 import type { ModelChoice } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   const { userContext, seedIdea, batchNumber = 0, seedIndex = 1, modelChoice } =

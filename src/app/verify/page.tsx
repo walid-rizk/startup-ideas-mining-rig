@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -11,11 +11,12 @@ import StressTestSession from '@/components/mining/stress-test-session';
 import { AppHeader } from '@/components/app-header';
 import { useSession } from '@/lib/session-context';
 import { sortByProgress, computeIdeaScore } from '@/lib/session';
+import { streamToText, ensureOk } from '@/lib/streaming';
 import type { IdeaResult } from '@/lib/types';
-import { ArrowRight, Search, Trophy, ChevronRight, FileText, Loader2, Flame } from 'lucide-react';
+import { ArrowRight, Search, Trophy, ChevronRight, FileText, Loader2, Flame, Square, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { reconstructVcMemo } from '@/lib/prompt-builders';
-import { usePhaseRun, getPhaseRun } from '@/lib/phase-status';
+import { usePhaseRun, getPhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, type PhaseType } from '@/lib/phase-status';
 
 type VerifyTab = 'research' | 'stress-test';
 
@@ -32,6 +33,10 @@ function VerifyPageInner() {
   const [activeTab, setActiveTab] = useState<VerifyTab>('research');
   const verifyRun = usePhaseRun('verify');
   const stressTestRun = usePhaseRun('stress-test');
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchCurrent, setBatchCurrent] = useState<string | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const batchCancelRef = useRef(false);
 
   useEffect(() => {
     if (!ready) return;
@@ -83,17 +88,107 @@ function VerifyPageInner() {
   const handleCustomIdea = () => {
     if (!customIdea.trim()) return;
     const firstLine = customIdea.split('\n')[0].replace(/^#+\s*/, '').substring(0, 80) || 'Custom Idea';
+    // No fabricated VC verdict: this idea skipped the gauntlet, so it enters as
+    // a founder-promoted survivor with no verdict or scores. Use the Mine
+    // page's "Your Idea" flow to get it framed and critiqued properly.
     const idea: IdeaResult = {
       id: `custom-${Date.now()}`,
       title: firstLine,
       rawMarkdown: customIdea,
       batchNumber: 0,
-      verdict: 'INVEST',
+      promoted: true,
     };
     update((prev) => ({ survivors: [...prev.survivors, idea] }));
     setSelectedIdea(idea);
     setCustomIdea('');
     setShowCustomInput(false);
+  };
+
+  // ─── Batch diligence: run research + stress test for every survivor missing them ───
+
+  const missingDiligenceCount = session.survivors.reduce(
+    (n, s) => n + (session.verifications[s.id] ? 0 : 1) + (session.stressTests[s.id] ? 0 : 1),
+    0,
+  );
+
+  const runPhaseForIdea = async (
+    phase: PhaseType,
+    idea: IdeaResult,
+    endpoint: string,
+    body: Record<string, unknown>,
+    fallbackError: string,
+  ): Promise<string> => {
+    const ac = new AbortController();
+    const runId = startPhaseRun(phase, idea.id, ac);
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      });
+      await ensureOk(res, fallbackError);
+      const fullText = await streamToText(res, (text) => updatePhaseOutput(phase, runId, text));
+      completePhaseRun(phase, runId);
+      return fullText;
+    } catch (err) {
+      failPhaseRun(phase, runId, err instanceof Error ? err.message : fallbackError);
+      throw err;
+    }
+  };
+
+  const runAllDiligence = async () => {
+    if (batchRunning || verifyRun?.isRunning || stressTestRun?.isRunning) return;
+    batchCancelRef.current = false;
+    setBatchRunning(true);
+    setBatchError(null);
+    try {
+      const ideas = sortByProgress(session.survivors, session);
+      for (const idea of ideas) {
+        if (batchCancelRef.current) break;
+        const vcMemo = reconstructVcMemo(idea);
+        const ideaMarkdown = `## ${idea.title}\n\n${idea.rawMarkdown}`;
+
+        let research = session.verifications[idea.id];
+        if (!research) {
+          setBatchCurrent(`${idea.title} — market research`);
+          research = await runPhaseForIdea('verify', idea, '/api/mining/verify', {
+            userContext: session.founderContext,
+            idea: ideaMarkdown,
+            vcMemo,
+            modelChoice: session.modelChoice,
+          }, 'Market research failed');
+          const report = research;
+          update((prev) => ({ verifications: { ...prev.verifications, [idea.id]: report } }));
+        }
+
+        if (batchCancelRef.current) break;
+        if (!session.stressTests[idea.id]) {
+          setBatchCurrent(`${idea.title} — stress test`);
+          const report = await runPhaseForIdea('stress-test', idea, '/api/mining/stress-test', {
+            userContext: session.founderContext,
+            idea: ideaMarkdown,
+            vcMemo,
+            marketResearch: research,
+            modelChoice: session.modelChoice,
+          }, 'Stress test failed');
+          update((prev) => ({ stressTests: { ...prev.stressTests, [idea.id]: report } }));
+        }
+      }
+    } catch (err) {
+      if (!batchCancelRef.current) {
+        setBatchError(err instanceof Error ? err.message : 'Batch diligence failed');
+      }
+    } finally {
+      setBatchRunning(false);
+      setBatchCurrent(null);
+    }
+  };
+
+  const stopBatch = () => {
+    batchCancelRef.current = true;
+    stopPhaseRun('verify');
+    stopPhaseRun('stress-test');
   };
 
   const ideaForSession = selectedIdea
@@ -221,7 +316,33 @@ function VerifyPageInner() {
                 <Badge variant="outline" className="text-emerald-400 border-emerald-400/50">
                   {survivors.length} ideas
                 </Badge>
+                {!batchRunning && missingDiligenceCount > 0 && (
+                  <Button
+                    onClick={runAllDiligence}
+                    size="sm"
+                    className="ml-auto bg-yellow-600 hover:bg-yellow-700 text-white font-mono text-xs"
+                    title="Sequentially run market research and stress tests for every survivor missing them"
+                  >
+                    <Zap className="w-3.5 h-3.5 mr-1.5" />
+                    Run all diligence ({missingDiligenceCount})
+                  </Button>
+                )}
+                {batchRunning && (
+                  <div className="ml-auto flex items-center gap-2">
+                    <span className="text-xs font-mono text-zinc-400 flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      {batchCurrent ?? 'Running diligence...'}
+                    </span>
+                    <Button onClick={stopBatch} size="sm" variant="destructive" className="font-mono text-xs">
+                      <Square className="w-3 h-3 mr-1" />
+                      Stop
+                    </Button>
+                  </div>
+                )}
               </div>
+              {batchError && (
+                <p className="text-xs text-red-400 font-mono mb-3">{batchError}</p>
+              )}
 
               {survivors.length === 0 ? (
                 <Card className="bg-zinc-900 border-zinc-800 border-dashed p-8 text-center">

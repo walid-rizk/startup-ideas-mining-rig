@@ -17,7 +17,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ModelChoice } from '@/lib/types';
-import { streamToText } from '@/lib/streaming';
+import { modelHasLiveSearch } from '@/lib/types';
+import { parseMarketConfidence as parseMarketConfidenceLevel } from '@/lib/session';
+import { streamToText, ensureOk } from '@/lib/streaming';
 import { extractTldr } from '@/lib/markdown-render';
 import { usePhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, clearPhaseRun, getPhaseRun } from '@/lib/phase-status';
 
@@ -74,7 +76,7 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
         signal: ac.signal,
       });
 
-      if (!response.ok) throw new Error('Failed to verify idea');
+      await ensureOk(response, 'Failed to verify idea');
 
       const fullText = await streamToText(response, (text) => updatePhaseOutput('verify', runId, text));
       completePhaseRun('verify', runId);
@@ -196,9 +198,8 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
   };
 
   const parseMarketConfidence = (): { level: string; color: string; bgColor: string; borderColor: string } | null => {
-    const match = researchOutput.match(/Market Confidence[:\s*]*(?:\*\*\s*)?(STRONG|MODERATE|WEAK|INSUFFICIENT)/i);
-    if (!match) return null;
-    const level = match[1].toUpperCase();
+    const level = parseMarketConfidenceLevel(researchOutput);
+    if (!level) return null;
     const config: Record<string, { color: string; bgColor: string; borderColor: string }> = {
       STRONG:       { color: 'text-emerald-300', bgColor: 'bg-emerald-500/20', borderColor: 'border-emerald-500/30' },
       MODERATE:     { color: 'text-amber-300', bgColor: 'bg-amber-500/20', borderColor: 'border-amber-500/30' },
@@ -300,6 +301,18 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
         </div>
       </div>
 
+      {/* No-live-search notice */}
+      {!modelHasLiveSearch(modelChoice) && (
+        <div className="flex items-start gap-2 text-xs text-amber-400/90 bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>
+            This model has no live web search — research runs on training knowledge only.
+            Figures are labeled <span className="font-mono">Knowledge / Proxy / Inferred</span> and
+            Market Confidence is capped at MODERATE. Treat numbers as starting points to verify, not facts.
+          </span>
+        </div>
+      )}
+
       {/* Progress */}
       {isVerifying && (
         <div className="space-y-1.5">
@@ -329,7 +342,7 @@ export default function VerifySession({ userContext, ideaId, idea, vcMemo, model
           >
             {researchOutput || (
               <span className="text-zinc-600">
-                Click "Start Verification" to begin market research...
+                Click &quot;Run Verification&quot; to begin market research...
               </span>
             )}
           </div>

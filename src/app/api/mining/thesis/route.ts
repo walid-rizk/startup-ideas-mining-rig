@@ -23,5 +23,6 @@ export async function POST(req: Request) {
     model: modelChoice ?? DEFAULT_MODEL,
     userMessage: buildThesisPrompt({ userContext }),
     temperature: 0.8,
+    maxTokens: 6000,
   });
 }

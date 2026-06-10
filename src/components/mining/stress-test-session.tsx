@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ModelChoice } from '@/lib/types';
-import { streamToText } from '@/lib/streaming';
+import { parseStressSeverity } from '@/lib/session';
+import { streamToText, ensureOk } from '@/lib/streaming';
 import { usePhaseRun, startPhaseRun, updatePhaseOutput, completePhaseRun, failPhaseRun, stopPhaseRun, clearPhaseRun, getPhaseRun } from '@/lib/phase-status';
 
 interface StressTestSessionProps {
@@ -80,7 +81,7 @@ export default function StressTestSession({
         signal: ac.signal,
       });
 
-      if (!response.ok) throw new Error('Failed to run stress test');
+      await ensureOk(response, 'Failed to run stress test');
 
       const fullText = await streamToText(response, (text) => updatePhaseOutput('stress-test', runId, text));
       completePhaseRun('stress-test', runId);
@@ -102,9 +103,8 @@ export default function StressTestSession({
     s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/`([^`]+)`/g, '$1');
 
   const parseSeverity = (): { level: string; color: string; bgColor: string; borderColor: string } | null => {
-    const match = output.match(/(?:^|\n)\s*(?:\*\*)?\s*Overall\s*:\s*(?:\*\*\s*)?(CRITICAL|HIGH|MODERATE|LOW)\b/i);
-    if (!match) return null;
-    const level = match[1].toUpperCase();
+    const level = parseStressSeverity(output);
+    if (!level) return null;
     const config: Record<string, { color: string; bgColor: string; borderColor: string }> = {
       CRITICAL: { color: 'text-red-300', bgColor: 'bg-red-500/20', borderColor: 'border-red-500/30' },
       HIGH: { color: 'text-orange-300', bgColor: 'bg-orange-500/20', borderColor: 'border-orange-500/30' },
