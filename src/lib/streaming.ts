@@ -17,12 +17,14 @@ export async function ensureOk(response: Response, fallback: string): Promise<vo
   throw new Error(message);
 }
 
-// Parses the Vercel AI SDK stream format (lines starting with `0:"..."`) into
-// plain text, emitting incremental callbacks as chunks arrive.
+// Parses the AI SDK v6 UI-message SSE stream (`data: {json}` events emitted by
+// toUIMessageStreamResponse) into plain text, emitting incremental callbacks
+// as chunks arrive. Accumulates `text-delta` events; throws on `error` events
+// so callers surface the server's real failure message.
 //
-// Network chunks do not respect line boundaries, so a `0:"..."` line can be
-// split across reads — we buffer the trailing partial line until the next
-// chunk completes it. The decoder runs in streaming mode so multi-byte UTF-8
+// Network chunks do not respect line boundaries, so an SSE line can be split
+// across reads — we buffer the trailing partial line until the next chunk
+// completes it. The decoder runs in streaming mode so multi-byte UTF-8
 // characters split across chunks survive too.
 export async function streamToText(
   response: Response,
@@ -35,29 +37,42 @@ export async function streamToText(
   let buffer = "";
 
   const consumeLine = (line: string) => {
-    if (!line.startsWith("0:")) return;
+    if (!line.startsWith("data: ")) return;
+    const payload = line.slice(6).trim();
+    if (!payload || payload === "[DONE]") return;
+    let chunk: { type?: string; delta?: unknown; errorText?: unknown };
     try {
-      const text = JSON.parse(line.slice(2));
-      if (typeof text === "string") {
-        full += text;
-        onChunk?.(full);
-      }
+      chunk = JSON.parse(payload);
     } catch {
-      // Malformed line — skip
+      return; // malformed event — skip
+    }
+    if (chunk.type === "text-delta" && typeof chunk.delta === "string") {
+      full += chunk.delta;
+      onChunk?.(full);
+    } else if (chunk.type === "error") {
+      throw new Error(
+        typeof chunk.errorText === "string" && chunk.errorText.trim()
+          ? chunk.errorText
+          : "Stream error",
+      );
     }
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? ""; // keep the trailing partial line for the next chunk
-    for (const line of lines) consumeLine(line);
-  }
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? ""; // keep the trailing partial line for the next chunk
+      for (const line of lines) consumeLine(line);
+    }
 
-  buffer += decoder.decode(); // flush any remaining decoder state
-  if (buffer) consumeLine(buffer);
+    buffer += decoder.decode(); // flush any remaining decoder state
+    if (buffer) consumeLine(buffer);
+  } finally {
+    reader.releaseLock();
+  }
 
   return full;
 }

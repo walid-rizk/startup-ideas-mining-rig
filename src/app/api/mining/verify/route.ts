@@ -21,6 +21,7 @@ export async function POST(req: Request) {
   }
 
   const model = modelChoice ?? DEFAULT_MODEL;
+  const searchEnabled = modelHasLiveSearch(model);
   return streamSkill({
     skill: "data-miner",
     model,
@@ -28,8 +29,9 @@ export async function POST(req: Request) {
       userContext,
       ideaMarkdown: idea,
       vcMemo,
-      searchEnabled: modelHasLiveSearch(model),
+      searchEnabled,
     }),
+    webSearch: searchEnabled,
     temperature: 0.4,
     maxTokens: 12000,
   });

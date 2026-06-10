@@ -11,21 +11,31 @@ function responseFromChunks(chunks: Uint8Array[]): Response {
   return new Response(stream);
 }
 
-function encodeLines(...texts: string[]): string {
-  return texts.map((t) => `0:${JSON.stringify(t)}\n`).join("");
+// Encodes texts as AI SDK v6 UI-message SSE events (what
+// toUIMessageStreamResponse emits): `data: {json}\n\n` + [DONE] terminator.
+function sse(...texts: string[]): string {
+  const events = [
+    `data: {"type":"start"}\n\n`,
+    `data: {"type":"text-start","id":"t1"}\n\n`,
+    ...texts.map((t) => `data: ${JSON.stringify({ type: "text-delta", id: "t1", delta: t })}\n\n`),
+    `data: {"type":"text-end","id":"t1"}\n\n`,
+    `data: {"type":"finish"}\n\n`,
+    `data: [DONE]\n\n`,
+  ];
+  return events.join("");
 }
 
 describe("streamToText", () => {
-  it("parses complete lines in a single chunk", async () => {
-    const payload = new TextEncoder().encode(encodeLines("Hello ", "world"));
+  it("parses complete SSE events in a single chunk", async () => {
+    const payload = new TextEncoder().encode(sse("Hello ", "world"));
     const text = await streamToText(responseFromChunks([payload]));
     expect(text).toBe("Hello world");
   });
 
-  it("survives a line split across two network chunks", async () => {
-    const bytes = new TextEncoder().encode(encodeLines("Hello ", "world"));
-    // Split mid-way through the second line's JSON string
-    const splitAt = bytes.length - 5;
+  it("survives an event split across two network chunks", async () => {
+    const bytes = new TextEncoder().encode(sse("Hello ", "world"));
+    // Split mid-way through a text-delta event's JSON
+    const splitAt = bytes.length - 60;
     const text = await streamToText(
       responseFromChunks([bytes.slice(0, splitAt), bytes.slice(splitAt)]),
     );
@@ -33,7 +43,7 @@ describe("streamToText", () => {
   });
 
   it("survives a multi-byte character split across chunks", async () => {
-    const bytes = new TextEncoder().encode(encodeLines("café ☕", " done"));
+    const bytes = new TextEncoder().encode(sse("café ☕", " done"));
     // 0xe2 is the first byte of ☕ — split inside the character
     const splitAt = bytes.findIndex((b) => b === 0xe2) + 1;
     expect(splitAt).toBeGreaterThan(0);
@@ -43,20 +53,28 @@ describe("streamToText", () => {
     expect(text).toBe("café ☕ done");
   });
 
-  it("flushes a final line that has no trailing newline", async () => {
-    const payload = new TextEncoder().encode(`0:${JSON.stringify("tail")}`);
-    const text = await streamToText(responseFromChunks([payload]));
-    expect(text).toBe("tail");
-  });
-
-  it("ignores non-text protocol lines", async () => {
-    const raw = `0:${JSON.stringify("a")}\nd:{"finishReason":"stop"}\n0:${JSON.stringify("b")}\n`;
+  it("ignores non-text protocol events", async () => {
+    const raw =
+      `data: {"type":"start"}\n\n` +
+      `data: ${JSON.stringify({ type: "text-delta", id: "t1", delta: "a" })}\n\n` +
+      `data: {"type":"tool-input-start","toolCallId":"x","toolName":"web_search"}\n\n` +
+      `data: ${JSON.stringify({ type: "text-delta", id: "t1", delta: "b" })}\n\n` +
+      `data: [DONE]\n\n`;
     const text = await streamToText(responseFromChunks([new TextEncoder().encode(raw)]));
     expect(text).toBe("ab");
   });
 
+  it("throws the server's message on error events", async () => {
+    const raw =
+      `data: {"type":"start"}\n\n` +
+      `data: ${JSON.stringify({ type: "error", errorText: "Invalid API key" })}\n\n`;
+    await expect(
+      streamToText(responseFromChunks([new TextEncoder().encode(raw)])),
+    ).rejects.toThrow("Invalid API key");
+  });
+
   it("emits cumulative text via onChunk", async () => {
-    const bytes = new TextEncoder().encode(encodeLines("a", "b", "c"));
+    const bytes = new TextEncoder().encode(sse("a", "b", "c"));
     const seen: string[] = [];
     await streamToText(responseFromChunks([bytes]), (acc) => seen.push(acc));
     expect(seen).toEqual(["a", "ab", "abc"]);

@@ -71,15 +71,14 @@ export function modelSupportsSampling(choice: ModelChoice): boolean {
   return !(choice.provider === "anthropic" && NO_SAMPLING_MODELS.has(choice.model));
 }
 
-// Central switch for live web search. No provider has search wired on the
-// current AI SDK version (ai@3.x) — add "provider:model" entries here once
-// the SDK is upgraded and search tools are passed in streamSkill. The verify
-// route and the Verify UI both read this so the data-miner prompt and the
-// user-facing notice stay in sync.
-const LIVE_SEARCH_MODELS = new Set<string>([]);
-
+// Central switch for live web search. Anthropic models use the provider-
+// executed web_search tool; Gemini models use Google Search grounding (both
+// wired in src/lib/providers.ts `liveSearchTools`). OpenAI search is not
+// enabled yet — those models run the data-miner in NO-LIVE-SEARCH mode.
+// The verify route and the Verify UI both read this so the data-miner prompt
+// and the user-facing notice stay in sync.
 export function modelHasLiveSearch(choice: ModelChoice): boolean {
-  return LIVE_SEARCH_MODELS.has(`${choice.provider}:${choice.model}`);
+  return choice.provider === "anthropic" || choice.provider === "gemini";
 }
 
 // ─── Verdicts ────────────────────────────────────────────────────────

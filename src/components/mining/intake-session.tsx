@@ -1,6 +1,7 @@
 'use client';
 
-import { useChat } from 'ai/react';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport, type UIMessage } from 'ai';
 import { useRef, useEffect, useState, useCallback, useMemo, ChangeEvent, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/card';
@@ -8,6 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Send, Terminal, Loader2, AlertCircle, Paperclip, FileText, X, CheckCircle, Compass } from 'lucide-react';
 import { useSession } from '@/lib/session-context';
 import { streamToText } from '@/lib/streaming';
+
+// Flattens a UIMessage's parts into plain text (we only ever render/persist text).
+function uiText(m: UIMessage): string {
+  return m.parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
+}
 
 const MessageBubble = memo(function MessageBubble({ role, content }: { role: string; content: string }) {
   return (
@@ -26,11 +32,16 @@ const MessageBubble = memo(function MessageBubble({ role, content }: { role: str
   );
 });
 
-const WELCOME_MESSAGE = {
+const WELCOME_MESSAGE: UIMessage = {
   id: 'welcome-1',
-  role: 'assistant' as const,
-  content:
-    "Welcome to the Startup Ideas Mining Rig. I am your Interviewer. I need to understand your background and goals to build your Founder Context.\n\nYou can either:\n• Answer my questions directly\n• Upload your resume (PDF or TXT) using the 📎 button, or paste a LinkedIn URL\n\nShall we begin?",
+  role: 'assistant',
+  parts: [
+    {
+      type: 'text',
+      text:
+        "Welcome to the Startup Ideas Mining Rig. I am your Interviewer. I need to understand your background and goals to build your Founder Context.\n\nYou can either:\n• Answer my questions directly\n• Upload your resume (PDF or TXT) using the 📎 button, or paste a LinkedIn URL\n\nShall we begin?",
+    },
+  ],
 };
 
 export default function IntakeSession() {
@@ -40,6 +51,7 @@ export default function IntakeSession() {
   const lastAssistantRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [input, setInput] = useState('');
   const [attachedFile, setAttachedFile] = useState<{ name: string; content: string } | null>(null);
   const [fileLoading, setFileLoading] = useState(false);
   const [thesisGenerating, setThesisGenerating] = useState(false);
@@ -48,16 +60,36 @@ export default function IntakeSession() {
   // Track how many messages we've last persisted to avoid redundant saves
   const lastSavedCountRef = useRef(session.intakeMessages.length);
 
-  const { messages, input, handleInputChange, handleSubmit, isLoading, error, append } = useChat({
-    api: '/api/mining/intake',
-    body: { modelChoice: session.modelChoice },
-    // Restore previous conversation; fall back to welcome message for new sessions
-    initialMessages:
-      session.intakeMessages.length > 0 ? session.intakeMessages : [WELCOME_MESSAGE],
+  // Restore previous conversation; fall back to welcome message for new sessions.
+  // Persisted messages are {id, role, content} — expand to UIMessage parts.
+  const [initialMessages] = useState<UIMessage[]>(() =>
+    session.intakeMessages.length > 0
+      ? session.intakeMessages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          parts: [{ type: 'text' as const, text: m.content }],
+        }))
+      : [WELCOME_MESSAGE],
+  );
+
+  const { messages, sendMessage, status, error } = useChat({
+    transport: new DefaultChatTransport({ api: '/api/mining/intake' }),
+    messages: initialMessages,
     onError: (err) => {
-      console.error("Chat Error:", err);
-    }
+      console.error('Chat Error:', err);
+    },
   });
+
+  const isLoading = status === 'submitted' || status === 'streaming';
+
+  // Sends a user message; modelChoice rides along per-request so toolbar
+  // changes mid-conversation take effect immediately.
+  const send = useCallback(
+    (text: string) => {
+      void sendMessage({ text }, { body: { modelChoice: session.modelChoice } });
+    },
+    [sendMessage, session.modelChoice],
+  );
 
   // Auto-detect a completed Founder Context block in the last assistant message,
   // persist it, then auto-generate thesis candidates and redirect to /thesis.
@@ -65,7 +97,7 @@ export default function IntakeSession() {
     if (isLoading) return;
     const last = [...messages].reverse().find((m) => m.role === 'assistant');
     if (!last) return;
-    const content = last.content;
+    const content = uiText(last);
     if (
       content.includes('## Founder DNA') &&
       content.length > 400 &&
@@ -111,11 +143,13 @@ export default function IntakeSession() {
     if (messages.length === lastSavedCountRef.current) return;
     lastSavedCountRef.current = messages.length;
     update({
-      intakeMessages: messages.map((m) => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      })),
+      intakeMessages: messages
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: uiText(m),
+        })),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, isLoading]);
@@ -135,7 +169,7 @@ export default function IntakeSession() {
     } else {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages.length]);
+  }, [messages.length, messages]);
 
   // During streaming: use ResizeObserver on the streaming message to auto-scroll
   // as it grows — event-driven, no per-render overhead
@@ -173,7 +207,7 @@ export default function IntakeSession() {
         className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
         style={{ contain: 'content' }}
       >
-        <MessageBubble role={m.role} content={m.content} />
+        <MessageBubble role={m.role} content={uiText(m)} />
       </div>
     ));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -185,6 +219,11 @@ export default function IntakeSession() {
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, []);
+
+  const clearInput = () => {
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+  };
 
   const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -250,12 +289,9 @@ export default function IntakeSession() {
 
       const message = `${preamble}--- RESUME START ---\n${attachedFile.content}\n--- RESUME END ---`;
 
-      append({ role: 'user', content: message });
+      send(message);
       setAttachedFile(null);
-
-      const inputEvent = { target: { value: '' } } as ChangeEvent<HTMLInputElement>;
-      handleInputChange(inputEvent);
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      clearInput();
     } else if (input.trim()) {
       const linkedinMatch = input.match(linkedinUrlRegex);
       if (linkedinMatch) {
@@ -269,21 +305,14 @@ export default function IntakeSession() {
             ? `${otherText}\n\n`
             : 'Here is my LinkedIn profile. Please use it to build my Founder Context.\n\n';
 
-          append({ role: 'user', content: `${preamble}--- LINKEDIN PROFILE ---\n${profileText}\n--- END LINKEDIN PROFILE ---` });
-
-          const inputEvent = { target: { value: '' } } as ChangeEvent<HTMLInputElement>;
-          handleInputChange(inputEvent);
-          if (textareaRef.current) textareaRef.current.style.height = 'auto';
+          send(`${preamble}--- LINKEDIN PROFILE ---\n${profileText}\n--- END LINKEDIN PROFILE ---`);
         } else {
-          append({ role: 'user', content: `I tried sharing my LinkedIn profile (${linkedinMatch[0]}) but it couldn't be fetched automatically. Could you ask me the key questions to build my Founder Context instead?` });
-
-          const inputEvent = { target: { value: '' } } as ChangeEvent<HTMLInputElement>;
-          handleInputChange(inputEvent);
-          if (textareaRef.current) textareaRef.current.style.height = 'auto';
+          send(`I tried sharing my LinkedIn profile (${linkedinMatch[0]}) but it couldn't be fetched automatically. Could you ask me the key questions to build my Founder Context instead?`);
         }
+        clearInput();
       } else {
-        handleSubmit(e);
-        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        send(input);
+        clearInput();
       }
     }
   };
@@ -320,7 +349,7 @@ export default function IntakeSession() {
             className="flex justify-start"
             style={{ contain: 'content' }}
           >
-            <MessageBubble role="assistant" content={messages[messages.length - 1].content} />
+            <MessageBubble role="assistant" content={uiText(messages[messages.length - 1])} />
           </div>
         )}
 
@@ -412,7 +441,7 @@ export default function IntakeSession() {
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => { handleInputChange(e as unknown as ChangeEvent<HTMLInputElement>); requestAnimationFrame(resizeTextarea); }}
+            onChange={(e) => { setInput(e.target.value); requestAnimationFrame(resizeTextarea); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();

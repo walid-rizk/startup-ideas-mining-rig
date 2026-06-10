@@ -143,8 +143,10 @@ export function buildVerifyPrompt(opts: {
 }): string {
   const evidenceInstructions = opts.searchEnabled
     ? [
-        `Produce a Market Research report per your Output Contract. Use web search for competitor and market size claims. Cite sources with dates. Label proxy reasoning explicitly.`,
+        `Produce a Market Research report per your Output Contract. You have LIVE WEB SEARCH in this run — use it for competitor and market size claims. Cite sources with dates. Label proxy reasoning explicitly.`,
+        `Include the source URL inline next to each cited figure, customer quote, and competitor claim (markdown link or bare URL).`,
         `Market size numbers and competitor status must be current as of today's date. Prefer sources dated within the last 18 months; flag any older figure as a proxy.`,
+        `Do NOT narrate your research process ("Let me search...", "Now I'll look up..."). Emit only the report, starting directly with the \`# Market Research:\` title line.`,
       ]
     : [
         `Produce a Market Research report per your Output Contract, operating in **NO-LIVE-SEARCH MODE** (see Evidence Standards in your instructions): you have NO web search in this run.`,
