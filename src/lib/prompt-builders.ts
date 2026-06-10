@@ -144,7 +144,7 @@ export function buildVerifyPrompt(opts: {
   const evidenceInstructions = opts.searchEnabled
     ? [
         `Produce a Market Research report per your Output Contract. You have LIVE WEB SEARCH in this run — use it for competitor and market size claims. Cite sources with dates. Label proxy reasoning explicitly.`,
-        `Include the source URL inline next to each cited figure, customer quote, and competitor claim (markdown link or bare URL).`,
+        `Attribute claims inline (publisher/site name + date). Do NOT emit your own "Sources"/bibliography section — the app automatically appends a Sources section listing the URLs from your actual searches.`,
         `Market size numbers and competitor status must be current as of today's date. Prefer sources dated within the last 18 months; flag any older figure as a proxy.`,
         `Do NOT narrate your research process ("Let me search...", "Now I'll look up..."). Emit only the report, starting directly with the \`# Market Research:\` title line.`,
       ]

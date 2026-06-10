@@ -50,6 +50,11 @@ function liveSearchTools(choice: ModelChoice): ToolSet | undefined {
     // Tool key must be "google_search" (provider requirement).
     return { google_search: google.tools.googleSearch({}) };
   }
+  if (choice.provider === "openai") {
+    // openai() defaults to the Responses API in @ai-sdk/openai v3, which is
+    // where the web_search built-in tool lives.
+    return { web_search: openai.tools.webSearch({}) };
+  }
   return undefined;
 }
 
@@ -114,6 +119,10 @@ export async function streamSkill(opts: StreamSkillOptions): Promise<Response> {
     });
 
     return result.toUIMessageStreamResponse({
+      // Citations from provider-executed search arrive as source events, not
+      // text (Gemini grounding especially never inlines URLs). Forward them so
+      // streamToText can append a Sources section to the report.
+      sendSources: true,
       // Default masks everything as "An error occurred." — surface the real
       // message so the client can show something actionable.
       onError: (error) =>

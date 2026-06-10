@@ -64,6 +64,27 @@ describe("streamToText", () => {
     expect(text).toBe("ab");
   });
 
+  it("appends a deduped Sources section from source-url events", async () => {
+    const raw =
+      `data: {"type":"start"}\n\n` +
+      `data: ${JSON.stringify({ type: "source-url", sourceId: "s1", url: "https://example.com/a", title: "Report [2026]" })}\n\n` +
+      `data: ${JSON.stringify({ type: "text-delta", id: "t1", delta: "# Market Research: X\n\nBody." })}\n\n` +
+      `data: ${JSON.stringify({ type: "source-url", sourceId: "s2", url: "https://example.com/b" })}\n\n` +
+      `data: ${JSON.stringify({ type: "source-url", sourceId: "s3", url: "https://example.com/a", title: "dupe" })}\n\n` +
+      `data: [DONE]\n\n`;
+    const text = await streamToText(responseFromChunks([new TextEncoder().encode(raw)]));
+    expect(text).toContain("## Sources");
+    expect(text).toContain("1. [Report 2026](https://example.com/a)"); // brackets stripped from label
+    expect(text).toContain("2. [https://example.com/b](https://example.com/b)"); // url as label fallback
+    expect(text.match(/example\.com\/a/g)).toHaveLength(1); // deduped
+  });
+
+  it("does not append a Sources section when there are no source events", async () => {
+    const payload = new TextEncoder().encode(sse("plain text"));
+    const text = await streamToText(responseFromChunks([payload]));
+    expect(text).toBe("plain text");
+  });
+
   it("throws the server's message on error events", async () => {
     const raw =
       `data: {"type":"start"}\n\n` +
